@@ -43,7 +43,7 @@ export default function QuestionList() {
 
       {sortedQuestions.length === 0 ? (
         <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-          No questions found. Upload a video to extract questions.
+          Nog geen vragen gevonden. Upload een video om vragen te extraheren.
         </div>
       ) : (
         <div className="space-y-4">

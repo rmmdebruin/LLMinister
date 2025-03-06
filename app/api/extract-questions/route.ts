@@ -6,9 +6,9 @@ import path from 'path';
 // Function to execute shell commands
 function executeCommand(command: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    exec(command, (error, stdout, stderr) => {
+    exec(command, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
       if (error) {
-        console.error(`Command execution error: ${error.message}`);
+        console.error(`Command execution error: ${error}`);
         console.error(`Command stderr: ${stderr}`);
         reject(error);
         return;
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the path to the Python script
-    const scriptDir = path.resolve(process.cwd(), 'python');
+    const scriptDir = path.resolve(process.cwd(), 'backend');
     const scriptPath = path.join(scriptDir, 'extract_questions.sh');
     const dataDir = path.resolve(process.cwd(), '..', 'data');
     const questionsDir = path.join(dataDir, 'questions');
@@ -44,6 +44,17 @@ export async function POST(request: NextRequest) {
     console.log(`Script path: ${scriptPath}`);
     console.log(`Data directory: ${dataDir}`);
     console.log(`Questions directory: ${questionsDir}`);
+
+    // Check if the script exists
+    try {
+      await fs.access(scriptPath);
+    } catch (error) {
+      console.error(`Script not found at ${scriptPath}`);
+      return NextResponse.json(
+        { error: `Script not found at ${scriptPath}` },
+        { status: 500 }
+      );
+    }
 
     // Ensure the questions directory exists
     await fs.mkdir(questionsDir, { recursive: true }).catch(() => {});

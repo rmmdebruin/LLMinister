@@ -10,8 +10,8 @@ export async function POST(request: NextRequest) {
   try {
     // Get the absolute paths
     const projectRoot = path.resolve(process.cwd());
-    const pythonScriptPath = path.join(projectRoot, 'python', 'generate_answers.py');
-    const venvPath = path.join(projectRoot, 'python', 'venv');
+    const pythonScriptPath = path.join(projectRoot, 'backend', 'generate_answers.py');
+    const venvPath = path.join(projectRoot, 'backend', 'venv');
     const pythonPath = path.join(venvPath, 'bin', 'python');
     const dataDir = path.join(projectRoot, '..', 'data');
     const knowledgeDir = path.join(dataDir, 'available_knowledge');
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
     const outputFile = path.join(answersDir, `questions_with_answers_${timestamp}.json`);
 
     // Build and execute the command
-    const command = `cd "${path.join(projectRoot, 'python')}" && source venv/bin/activate && "${pythonPath}" "${pythonScriptPath}" --questions-file "${questionsFile}" --knowledge-dir "${knowledgeDir}" --output-file "${outputFile}"`;
+    const command = `cd "${path.join(projectRoot, 'backend')}" && source venv/bin/activate && "${pythonPath}" "${pythonScriptPath}" --questions-file "${questionsFile}" --knowledge-dir "${knowledgeDir}" --output-file "${outputFile}"`;
 
     console.log('Executing command:', command);
 
@@ -66,13 +66,25 @@ export async function POST(request: NextRequest) {
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     try {
-      // Check if the output file exists
-      if (!fs.existsSync(outputFile)) {
-        throw new Error(`Generated answers file not found at ${outputFile}`);
+      // Try to extract the actual output file path from the command output
+      const outputFileMatch = stdout.match(/Updated questions saved to (.+\.json)/);
+      const actualOutputFile = outputFileMatch ? outputFileMatch[1] : outputFile;
+
+      // Check if the actual output file exists
+      if (!fs.existsSync(actualOutputFile)) {
+        // If the actual output file doesn't exist, check if the original output file exists
+        if (fs.existsSync(outputFile)) {
+          console.log(`Using original output file: ${outputFile}`);
+        } else {
+          throw new Error(`Generated answers file not found at ${actualOutputFile} or ${outputFile}`);
+        }
+      } else {
+        console.log(`Using actual output file found in command output: ${actualOutputFile}`);
       }
 
-      // Read the generated answers file
-      const fileContent = fs.readFileSync(outputFile, 'utf-8');
+      // Read the generated answers file (use actualOutputFile if it exists, otherwise use outputFile)
+      const fileToRead = fs.existsSync(actualOutputFile) ? actualOutputFile : outputFile;
+      const fileContent = fs.readFileSync(fileToRead, 'utf-8');
       let answers;
 
       try {
@@ -101,7 +113,7 @@ export async function POST(request: NextRequest) {
         status: 'success',
         answers: processedAnswers,
         message: 'Draft answers generated successfully',
-        outputFile: outputFile
+        outputFile: fileToRead
       });
 
     } catch (error: any) {

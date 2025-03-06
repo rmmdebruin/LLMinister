@@ -32,8 +32,8 @@ export async function POST(request: NextRequest) {
 
     // Get the absolute paths
     const projectRoot = path.resolve(process.cwd());
-    const pythonScriptPath = path.join(projectRoot, 'python', 'transcribe.py');
-    const venvPath = path.join(projectRoot, 'python', 'venv');
+    const pythonScriptPath = path.join(projectRoot, 'backend', 'transcribe.py');
+    const venvPath = path.join(projectRoot, 'backend', 'venv');
     const pythonPath = path.join(venvPath, 'bin', 'python');
     const dataDir = path.join(projectRoot, '..', 'data');
     const debateVideosDir = path.join(dataDir, 'debate_videos');
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     console.log(`Saved uploaded file to: ${savedFilePath}`);
 
     // Build and execute the command
-    const command = `cd "${path.join(projectRoot, 'python')}" && source venv/bin/activate && "${pythonPath}" "${pythonScriptPath}" --api-key "${apiKey}" --input "${tempFilePath}" --output-dir "${dataDir}"`;
+    const command = `cd "${path.join(projectRoot, 'backend')}" && source venv/bin/activate && "${pythonPath}" "${pythonScriptPath}" --api-key "${apiKey}" --input "${tempFilePath}" --output-dir "${dataDir}"`;
 
     console.log('Executing command:', command);
 

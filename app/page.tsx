@@ -3,13 +3,13 @@
 import Link from 'next/link';
 import React, { useState } from 'react';
 import {
-    MdAdd,
-    MdDelete,
-    MdOutlineArrowForward,
-    MdOutlineLabel,
-    MdOutlineQuestionAnswer,
-    MdOutlineSettings,
-    MdOutlineVideoLibrary
+  MdAdd,
+  MdDelete,
+  MdOutlineArrowForward,
+  MdOutlineLabel,
+  MdOutlineQuestionAnswer,
+  MdOutlineSettings,
+  MdOutlineVideoLibrary
 } from 'react-icons/md';
 import { useStore } from './lib/store';
 
