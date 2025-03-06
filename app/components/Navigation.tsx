@@ -20,6 +20,8 @@ const Navigation = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const questions = useStore((state) => state.questions);
+  const resetData = useStore((state) => state.resetData);
+  const [isResetting, setIsResetting] = useState(false);
 
   // Check for dark mode preference on component mount
   useEffect(() => {
@@ -41,6 +43,23 @@ const Navigation = () => {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
+    }
+  };
+
+  const handleReset = async () => {
+    if (!confirm('Weet je zeker dat je alle transcripties en vragen wilt verwijderen?')) {
+      return;
+    }
+
+    try {
+      setIsResetting(true);
+      await resetData();
+      alert('Alle data is succesvol verwijderd.');
+    } catch (error) {
+      console.error('Error resetting data:', error);
+      alert('Er is een fout opgetreden bij het verwijderen van de data.');
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -113,6 +132,16 @@ const Navigation = () => {
                 <span>Donkere modus</span>
               </>
             )}
+          </button>
+        </div>
+
+        <div className="mt-auto pt-4 border-t border-slate-200 dark:border-slate-700">
+          <button
+            onClick={handleReset}
+            disabled={isResetting}
+            className="flex items-center w-full px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50 rounded-lg transition-colors"
+          >
+            {isResetting ? 'Bezig met resetten...' : 'Reset Data'}
           </button>
         </div>
       </nav>

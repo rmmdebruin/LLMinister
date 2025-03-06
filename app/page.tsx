@@ -1,8 +1,16 @@
 'use client';
 
 import Link from 'next/link';
-import React from 'react';
-import { MdOutlineArrowForward, MdOutlineQuestionAnswer, MdOutlineSettings, MdOutlineVideoLibrary } from 'react-icons/md';
+import React, { useState } from 'react';
+import {
+    MdAdd,
+    MdDelete,
+    MdOutlineArrowForward,
+    MdOutlineLabel,
+    MdOutlineQuestionAnswer,
+    MdOutlineSettings,
+    MdOutlineVideoLibrary
+} from 'react-icons/md';
 import { useStore } from './lib/store';
 
 const DashboardCard = ({
@@ -67,10 +75,27 @@ const DashboardCard = ({
 export default function Home() {
   const questions = useStore((state) => state.questions);
   const transcripts = useStore((state) => state.transcripts);
+  const categories = useStore((state) => state.categories);
+  const addCategory = useStore((state) => state.addCategory);
+  const removeCategory = useStore((state) => state.removeCategory);
+  const [newCategory, setNewCategory] = useState('');
 
   // Count questions by status
   const draftQuestions = questions.filter(q => q.status === 'Draft').length;
   const totalQuestions = questions.length;
+
+  // Count questions by category
+  const questionsByCategory = categories.map(category => ({
+    name: category,
+    count: questions.filter(q => q.category === category).length
+  }));
+
+  const handleAddCategory = () => {
+    if (newCategory.trim() && !categories.includes(newCategory.trim())) {
+      addCategory(newCategory.trim());
+      setNewCategory('');
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -149,6 +174,71 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-md rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-200 flex items-center">
+              <MdOutlineLabel className="mr-2" />
+              Categorieën
+            </h2>
+            <p className="mt-1 text-slate-600 dark:text-slate-400">
+              Beheer de categorieën voor parlementaire vragen
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={newCategory}
+              onChange={(e) => setNewCategory(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAddCategory()}
+              placeholder="Nieuwe categorie"
+              className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onClick={handleAddCategory}
+              disabled={!newCategory.trim()}
+              className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:hover:bg-blue-500"
+              title="Nieuwe categorie toevoegen"
+            >
+              <MdAdd />
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {questionsByCategory.map(({ name, count }) => (
+            <div
+              key={name}
+              className="bg-gradient-to-r from-slate-50 to-white dark:from-slate-700/50 dark:to-slate-700 rounded-lg p-4 border border-slate-200 dark:border-slate-600 flex items-center justify-between group hover:border-blue-300 dark:hover:border-blue-500 transition-colors"
+            >
+              <div className="flex items-center space-x-3">
+                <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                <span className="text-slate-700 dark:text-slate-300 font-medium">
+                  {name}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Link
+                  href={`/vragen?category=${name}`}
+                  className="bg-white/50 dark:bg-slate-600/50 text-slate-600 dark:text-slate-400 px-2 py-1 rounded text-sm opacity-0 group-hover:opacity-100 transition-opacity hover:text-blue-600 dark:hover:text-blue-400"
+                >
+                  {count} {count === 1 ? 'vraag' : 'vragen'}
+                </Link>
+                {name !== 'Algemeen' && (
+                  <button
+                    onClick={() => removeCategory(name)}
+                    className="p-1.5 text-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 dark:hover:bg-red-900/20"
+                    title="Verwijder categorie"
+                  >
+                    <MdDelete className="text-lg" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

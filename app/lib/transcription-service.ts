@@ -227,7 +227,7 @@ export class TranscriptionService {
         if (progressCallback) progressCallback(10, 'Starting transcription with Python backend...');
 
         // Call the Python backend
-        if (progressCallback) progressCallback(30, 'Processing video...');
+        if (progressCallback) progressCallback(30, 'Transcriberen...');
         const transcript = await this.assemblyAIService.transcribeWithPython(file);
 
         if (progressCallback) progressCallback(100, 'Transcription complete!');
@@ -286,7 +286,7 @@ export class TranscriptionService {
   }>> {
     try {
       // Get categories from store if available
-      const categories = ['general']; // Default category
+      const categories = ['Algemeen']; // Default category
 
       // Use the new Python-based question extraction API
       const response = await fetch('/api/extract-questions', {
@@ -358,7 +358,7 @@ export class TranscriptionService {
     // First transcribe the video
     const transcript = await this.transcribeVideo(file, progressCallback);
 
-    if (progressCallback) progressCallback(90, 'Extracting questions...');
+    if (progressCallback) progressCallback(90, 'Extractie van vragen...');
 
     // Then extract questions
     const questions = await this.extractQuestions(transcript);

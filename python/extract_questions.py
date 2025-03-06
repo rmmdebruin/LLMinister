@@ -29,7 +29,7 @@ class QuestionExtractor:
 
         self.api_key = api_key
         self.client = Anthropic(api_key=api_key)
-        self.model = "claude-3-opus-20240229"  # Using Claude 3 Opus
+        self.model = "claude-3-7-sonnet-20250219"  # Using Claude Sonnet
 
     def find_latest_transcript(self, transcripts_dir):
         """
@@ -84,6 +84,13 @@ class QuestionExtractor:
 
         return transcript
 
+    def read_list_of_speakers(self, list_of_speakers_path):
+        """
+        Read the list of speakers CSV file.
+        """
+        df = pd.read_csv(list_of_speakers_path)
+        return df
+
     def read_raw_data(self, raw_data_path):
         """
         Read the raw data JSON file.
@@ -93,15 +100,15 @@ class QuestionExtractor:
 
         return raw_data
 
-    def extract_questions(self, transcript, raw_data, categories=None):
+    def extract_questions(self, transcript, raw_data, categories=None, list_of_speakers=None):
         """
         Extract questions from the transcript using Anthropic API.
         """
-        # Ensure we always have a "general" category
+        # Initialize categories if not provided
         if not categories:
-            categories = ["general"]
-        elif "general" not in categories:
-            categories.append("general")
+            categories = ["Algemeen"]
+        elif "Algemeen" not in categories:
+            categories.append("Algemeen")
 
         categories_str = ", ".join(categories)
 
@@ -125,7 +132,25 @@ class QuestionExtractor:
         - "party": The political party of the speaker
         - "category": The topic/category of the question
 
-        Only include actual questions directed to the minister. Rhetorical questions or statements should not be included.
+        Rules:
+        - Only include actual questions directed to the minister. Rhetorical questions or statements should not be included.
+        - During a Plenair debat in the Tweede Kamer, each Tweede Kamerlid typically has a set time to speak, usually a few minutes,
+          to ask questions to the minister or express their views.
+          Interruptions are generally not allowed during a member's speaking time to ensure orderly debate.
+          However, members can request the right to respond or intervene through the chair, who manages the debate and grants permission to speak.
+          This structured format ensures that all participants have an opportunity to contribute without disruption.
+        - The speaker labels in the transcript are labelled A, B, C, etc. However, they actually should correspond to actual people.
+          Make the link between the speaker labels and the actual people names on the basis of a critical review of the transcript
+          in combination with the knowledge you have about the format of the debate and the list of speakers.
+        - Here is the list of people in the transcript, ordered by their set time to speak for a few minutes.
+          However, do note that the speakers can be interrupted by other Tweede Kamerleden during their set time to speak, so speech might switch speaker within this set time to speak,
+          and because of the interruptions the speaker's set time to speak from start to end, including interruptions, might be longer than a few minutes.
+          Also note that the Kamervoorzitter often says quick things to give other speakers the right to speak. Those sentences or questions should not be included in the list of questions.
+          Also note that the Minister does not having speaking rights in this part of the parliamentary debate, so the Minister will not be part of the transcript.
+        - List of speakers ordered by their set time to speak:
+          {list_of_speakers}
+        - Be critical of the speaker labels in the provided transcript. Sometimes the speaker labels alternate quite quickly, but really they are the same person.
+          Although sometimes the speaker and so the speaker label does actually change justly. Judge from the speech content whether the speaker label is correct.
 
         Transcript:
         {transcript}
@@ -193,10 +218,11 @@ def main():
                         help="Directory containing transcript files")
     parser.add_argument("--output-dir", default="/Users/debruinreinier/Repos/LLMinister/data/questions",
                         help="Directory to save extracted questions")
-    parser.add_argument("--categories", nargs='+', default=["general"],
+    parser.add_argument("--categories", nargs='+', default=["Algemeen"],
                         help="Categories for question classification")
     parser.add_argument("--transcript-file", help="Specific transcript file to process (optional)")
-
+    parser.add_argument("--list-of-speakers-file", default="/Users/debruinreinier/Repos/LLMinister/data/list_of_speakers/list_of_speakers.csv",
+                        help="List of speakers file to process (optional)")
     args = parser.parse_args()
 
     # Load environment variables from .env file
@@ -229,15 +255,22 @@ def main():
         else:
             transcript_path = extractor.find_latest_transcript(transcripts_dir)
 
+        # Find the list of speakers file to process
+        if args.list_of_speakers_file:
+            list_of_speakers_path = os.path.abspath(args.list_of_speakers_file)
+            if not os.path.exists(list_of_speakers_path):
+                raise FileNotFoundError(f"List of speakers file not found: {list_of_speakers_path}")
+
         # Find the matching raw data file
         raw_data_path = extractor.find_matching_raw_data(transcript_path)
 
         # Read the transcript and raw data
         transcript = extractor.read_transcript(transcript_path)
+        list_of_speakers = extractor.read_list_of_speakers(list_of_speakers_path)
         raw_data = extractor.read_raw_data(raw_data_path)
 
         # Extract questions
-        questions = extractor.extract_questions(transcript, raw_data, args.categories)
+        questions = extractor.extract_questions(transcript, raw_data, args.categories, list_of_speakers)
 
         # Create output filename based on transcript filename
         transcript_filename = os.path.basename(transcript_path)

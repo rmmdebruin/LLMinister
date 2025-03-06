@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import React, { useState } from 'react';
-import { MdEdit, MdOutlineFilterList, MdPlayArrow, MdRefresh, MdSave } from 'react-icons/md';
+import React, { useEffect, useMemo, useState } from 'react';
+import { MdEdit, MdExpandLess, MdExpandMore, MdOutlineAssignmentTurnedIn, MdOutlineFilterList, MdOutlineLabel, MdOutlineQuestionAnswer, MdOutlineRadioButtonChecked, MdOutlineVideoLibrary, MdPerson, MdPlayArrow, MdRefresh, MdSave } from 'react-icons/md';
 import { Question, useStore } from '../lib/store';
 
 // Define props interface for the QuestionCard component
@@ -17,49 +17,234 @@ const QuestionCard: React.FC<QuestionCardProps> = ({ question, onUpdateQuestion 
   const [status, setStatus] = useState<'Draft' | 'Herschreven' | 'Definitief'>(question.status);
   const [nextAction, setNextAction] = useState(question.nextAction || '');
   const [responsible, setResponsible] = useState(question.personResponsible || '');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
 
-  const handleSave = () => {
-    onUpdateQuestion({
-      ...question,
-      draftAnswer: editedAnswer,
-      status: status,
-      nextAction: nextAction,
-      personResponsible: responsible
-    });
-    setIsEditing(false);
+  // Update local state when question prop changes
+  useEffect(() => {
+    setEditedAnswer(question.draftAnswer || '');
+    setStatus(question.status);
+    setNextAction(question.nextAction || '');
+    setResponsible(question.personResponsible || '');
+  }, [question]);
+
+  // Calculate if the answer should have an expand button
+  const hasLongAnswer = useMemo(() => {
+    return question.draftAnswer && question.draftAnswer.split('\n').length > 4;
+  }, [question.draftAnswer]);
+
+  // Save changes to the question
+  const handleSave = async () => {
+    try {
+      setIsSaving(true);
+      setSaveError(null);
+
+      // First update the local store
+      onUpdateQuestion({
+        ...question,
+        draftAnswer: editedAnswer,
+        status: status,
+        nextAction: nextAction,
+        personResponsible: responsible
+      });
+
+      // Then save to the backend
+      const response = await fetch('/api/save-answer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          questionId: question.id,
+          questionText: question.question_text || question.text,
+          draftAnswer: editedAnswer
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save answer to backend');
+      }
+
+      // Exit editing mode
+      setIsEditing(false);
+    } catch (error) {
+      console.error('Error saving answer:', error);
+      setSaveError(error instanceof Error ? error.message : 'Unknown error');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Update a single metadata field
+  const handleMetadataChange = async (field: 'status' | 'nextAction' | 'personResponsible', value: string) => {
+    try {
+      let updatedValue;
+
+      // Update the local state
+      if (field === 'status') {
+        setStatus(value as 'Draft' | 'Herschreven' | 'Definitief');
+        updatedValue = value;
+      } else if (field === 'nextAction') {
+        setNextAction(value);
+        updatedValue = value;
+      } else if (field === 'personResponsible') {
+        setResponsible(value);
+        updatedValue = value;
+      }
+
+      // Update the store
+      onUpdateQuestion({
+        ...question,
+        [field]: updatedValue
+      });
+
+      // No need to save to backend here as it will be saved when the answer is saved
+    } catch (error) {
+      console.error(`Error updating ${field}:`, error);
+    }
   };
 
   return (
     <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden mb-8 transition-all duration-300 hover:shadow-md">
       <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 p-4 border-b border-slate-200 dark:border-slate-700">
-        <div className="flex justify-between items-start">
-          <div>
-            <div className="flex items-center space-x-2 mb-2">
-              <span className="bg-gradient-to-r from-blue-600 to-purple-600 text-white text-xs px-2 py-1 rounded-full">
+        <div className="flex flex-col space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="bg-gradient-to-r from-blue-600/80 to-purple-600/80 backdrop-blur-sm text-white text-xs px-2 py-1 rounded-full shadow-sm">
                 {question.category || 'Algemeen'}
               </span>
-              <span className="text-slate-500 dark:text-slate-400 text-sm flex items-center">
+              <span className="bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-xs px-2 py-1 rounded-full shadow-sm flex items-center">
                 <MdPlayArrow className="mr-1" />
                 {question.videoTimestamp || '00:00:00'}
               </span>
             </div>
-            <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200">
-              {question.text}
-            </h3>
+            <div className="flex flex-wrap items-center gap-3 mt-2 md:mt-0">
+              <div className="flex items-center">
+                <div className="relative group">
+                  <button
+                    type="button"
+                    className="bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-sm font-medium px-4 py-2 rounded-full shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all min-w-[140px] flex items-center"
+                  >
+                    <MdOutlineRadioButtonChecked className="mr-2 text-base" />
+                    <span className="flex-grow text-left">Status: {status}</span>
+                  </button>
+                  <div className="absolute right-0 mt-2 py-2 w-48 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-600 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+                    <div
+                      onClick={() => handleMetadataChange('status', 'Draft')}
+                      className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-sm text-slate-700 dark:text-slate-300"
+                    >
+                      Draft
+                    </div>
+                    <div
+                      onClick={() => handleMetadataChange('status', 'Herschreven')}
+                      className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-sm text-slate-700 dark:text-slate-300"
+                    >
+                      Herschreven
+                    </div>
+                    <div
+                      onClick={() => handleMetadataChange('status', 'Definitief')}
+                      className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-sm text-slate-700 dark:text-slate-300"
+                    >
+                      Definitief
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center">
+                <div className="relative group">
+                  <button
+                    type="button"
+                    className="bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-sm font-medium px-4 py-2 rounded-full shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all min-w-[160px] flex items-center"
+                  >
+                    <MdOutlineAssignmentTurnedIn className="mr-2 text-base" />
+                    <span className="flex-grow text-left">Actie: {nextAction || 'Geen'}</span>
+                  </button>
+                  <div className="absolute right-0 mt-2 py-2 w-48 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-600 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+                    <div
+                      onClick={() => handleMetadataChange('nextAction', '')}
+                      className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-sm text-slate-700 dark:text-slate-300"
+                    >
+                      Geen
+                    </div>
+                    <div
+                      onClick={() => handleMetadataChange('nextAction', 'Herschrijven')}
+                      className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-sm text-slate-700 dark:text-slate-300"
+                    >
+                      Herschrijven
+                    </div>
+                    <div
+                      onClick={() => handleMetadataChange('nextAction', 'Check senior')}
+                      className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-sm text-slate-700 dark:text-slate-300"
+                    >
+                      Check senior
+                    </div>
+                    <div
+                      onClick={() => handleMetadataChange('nextAction', 'Klaar')}
+                      className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-sm text-slate-700 dark:text-slate-300"
+                    >
+                      Klaar
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center">
+                <div className="relative">
+                  <div className="bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-sm font-medium px-4 py-2 rounded-full shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all min-w-[160px] flex items-center">
+                    <MdPerson className="mr-2 text-base" />
+                    <input
+                      type="text"
+                      value={responsible}
+                      onChange={(e) => handleMetadataChange('personResponsible', e.target.value)}
+                      placeholder="Verantwoordelijke"
+                      className="bg-transparent border-none text-slate-700 dark:text-slate-300 text-sm p-0 w-full focus:outline-none focus:ring-0 placeholder:text-slate-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="mt-3 text-sm text-slate-600 dark:text-slate-300 flex items-center">
-          <span className="font-medium">{question.speaker || 'Onbekend'}</span>
-          <span className="mx-1">•</span>
-          <span className="text-blue-600 dark:text-blue-400">{question.party || 'Onbekend'}</span>
+
+          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200">
+            {question.text}
+          </h3>
+
+          <div className="text-sm text-slate-600 dark:text-slate-300 flex items-center">
+            <span className="font-medium">{question.speaker || 'Onbekend'}</span>
+            <span className="mx-1">•</span>
+            <span className="text-blue-600 dark:text-blue-400">{question.party || 'Onbekend'}</span>
+          </div>
         </div>
       </div>
 
       <div className="p-4">
         <div className="mb-4">
-          <h4 className="text-sm font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
-            Concept Antwoord
-          </h4>
+          <div className="flex justify-between items-center mb-2">
+            <h4 className="text-sm font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+              Concept Antwoord
+            </h4>
+            {!isEditing && hasLongAnswer && (
+              <button
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 px-3 py-1 rounded-full text-sm font-medium flex items-center shadow-sm hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all border border-slate-200 dark:border-slate-600"
+                aria-expanded={isExpanded}
+                aria-controls={`answer-content-${question.id}`}
+              >
+                {isExpanded ? (
+                  <>
+                    <MdExpandLess className="mr-1" />
+                    Inklappen
+                  </>
+                ) : (
+                  <>
+                    <MdExpandMore className="mr-1" />
+                    Uitklappen
+                  </>
+                )}
+              </button>
+            )}
+          </div>
           {isEditing ? (
             <textarea
               value={editedAnswer}
@@ -67,73 +252,25 @@ const QuestionCard: React.FC<QuestionCardProps> = ({ question, onUpdateQuestion 
               className="w-full h-40 p-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             />
           ) : (
-            <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4 text-slate-700 dark:text-slate-300">
-              {question.draftAnswer}
+            <div className="relative">
+              <div
+                id={`answer-content-${question.id}`}
+                className={`bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4 text-slate-700 dark:text-slate-300 whitespace-pre-wrap ${hasLongAnswer ? 'overflow-hidden transition-all duration-500 ease-in-out' : ''}`}
+                style={hasLongAnswer ? { maxHeight: isExpanded ? '2000px' : '150px' } : {}}
+              >
+                {question.draftAnswer}
+              </div>
+              {hasLongAnswer && !isExpanded && (
+                <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-slate-50 to-transparent dark:from-slate-700/50 dark:to-transparent pointer-events-none rounded-b-lg"></div>
+              )}
             </div>
           )}
-        </div>
 
-        <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
-                Status
-              </label>
-              {isEditing ? (
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value as 'Draft' | 'Herschreven' | 'Definitief')}
-                  className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
-                >
-                  <option value="Draft">Draft</option>
-                  <option value="Herschreven">Herschreven</option>
-                  <option value="Definitief">Definitief</option>
-                </select>
-              ) : (
-                <div className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-700 dark:text-slate-300 text-sm">
-                  {question.status}
-                </div>
-              )}
+          {saveError && (
+            <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300 text-sm">
+              <strong>Fout bij opslaan:</strong> {saveError}
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
-                Volgende actie
-              </label>
-              {isEditing ? (
-                <select
-                  value={nextAction}
-                  onChange={(e) => setNextAction(e.target.value)}
-                  className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
-                >
-                  <option value="Herschrijven">Herschrijven</option>
-                  <option value="Check senior">Check senior</option>
-                  <option value="Klaar">Klaar</option>
-                </select>
-              ) : (
-                <div className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-700 dark:text-slate-300 text-sm">
-                  {question.nextAction}
-                </div>
-              )}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
-                Persoon verantwoordelijk
-              </label>
-              {isEditing ? (
-                <input
-                  type="text"
-                  value={responsible}
-                  onChange={(e) => setResponsible(e.target.value)}
-                  placeholder="Naam van verantwoordelijke"
-                  className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
-                />
-              ) : (
-                <div className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 rounded-lg text-slate-700 dark:text-slate-300 text-sm">
-                  {question.personResponsible || 'Niet toegewezen'}
-                </div>
-              )}
-            </div>
-          </div>
+          )}
         </div>
 
         <div className="mt-4 flex justify-end space-x-3">
@@ -141,22 +278,36 @@ const QuestionCard: React.FC<QuestionCardProps> = ({ question, onUpdateQuestion 
             <>
               <button
                 onClick={() => setIsEditing(false)}
-                className="px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium"
+                disabled={isSaving}
+                className="bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm px-4 py-2 rounded-full text-slate-700 dark:text-slate-300 text-sm font-medium shadow-sm hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all border border-slate-200 dark:border-slate-600 disabled:opacity-50"
               >
                 Annuleren
               </button>
               <button
                 onClick={handleSave}
-                className="px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg text-sm font-medium flex items-center"
+                disabled={isSaving}
+                className="bg-gradient-to-r from-blue-500/80 to-purple-500/80 backdrop-blur-sm px-4 py-2 text-white rounded-full text-sm font-medium flex items-center shadow-sm hover:from-blue-500/90 hover:to-purple-500/90 transition-all disabled:opacity-50"
               >
-                <MdSave className="mr-1" />
-                Opslaan
+                {isSaving ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Opslaan...
+                  </>
+                ) : (
+                  <>
+                    <MdSave className="mr-1" />
+                    Opslaan
+                  </>
+                )}
               </button>
             </>
           ) : (
             <button
               onClick={() => setIsEditing(true)}
-              className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium flex items-center"
+              className="bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm px-4 py-2 rounded-full text-slate-700 dark:text-slate-300 text-sm font-medium flex items-center shadow-sm hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all border border-slate-200 dark:border-slate-600"
             >
               <MdEdit className="mr-1" />
               Bewerken
@@ -174,24 +325,38 @@ const VragenPage = () => {
   const categories = useStore((state) => state.categories);
   const updateQuestion = useStore((state) => state.updateQuestion);
   const loadQuestionsFromFile = useStore((state) => state.loadQuestionsFromFile);
+  const addCategory = useStore((state) => state.addCategory);
 
-  const [filters, setFilters] = useState({
-    topic: 'Alle',
-    party: 'Alle',
-    status: 'Alle',
-  });
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isGeneratingAnswers, setIsGeneratingAnswers] = useState(false);
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+
+  // Consolidate filter state
+  const [selectedFilters, setSelectedFilters] = useState({
+    category: '',
+    party: '',
+    status: ''
+  });
 
   // Get unique parties from questions
   const partyOptions = ['Alle', ...new Set(questions.map(q => q.party).filter(Boolean))];
 
   // Filter questions based on selected filters
   const filteredQuestions = questions.filter(q => {
-    return (filters.topic === 'Alle' || q.category === filters.topic) &&
-           (filters.party === 'Alle' || q.party === filters.party) &&
-           (filters.status === 'Alle' || q.status === filters.status);
+    const categoryMatch = !selectedFilters.category || q.category === selectedFilters.category;
+    const partyMatch = !selectedFilters.party || q.party === selectedFilters.party;
+    const statusMatch = !selectedFilters.status || q.status === selectedFilters.status;
+    return categoryMatch && partyMatch && statusMatch;
   });
+
+  // Update filter handlers
+  const handleFilterChange = (filterType: 'category' | 'party' | 'status', value: string) => {
+    setSelectedFilters(prev => ({
+      ...prev,
+      [filterType]: value
+    }));
+  };
 
   // Function to load the latest extracted questions
   const loadLatestQuestions = async () => {
@@ -230,8 +395,57 @@ const VragenPage = () => {
     }
   };
 
+  const handleGenerateAnswers = async () => {
+    try {
+      setIsGeneratingAnswers(true);
+      const response = await fetch('/api/generate-answers', {
+        method: 'POST'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate answers');
+      }
+
+      const data = await response.json();
+      if (data.status === 'success' && data.answers) {
+        // Load the questions with draft answers into the store
+        console.log(`Received ${data.answers.length} questions with draft answers`);
+        loadQuestionsFromFile(data.answers);
+        setShowSuccessMessage(true);
+        setTimeout(() => setShowSuccessMessage(false), 3000); // Hide after 3 seconds
+      } else {
+        throw new Error('No answers received from the server');
+      }
+    } catch (error) {
+      console.error('Error generating answers:', error);
+      alert(`Er is een fout opgetreden bij het genereren van conceptantwoorden: ${error instanceof Error ? error.message : 'Onbekende fout'}`);
+    } finally {
+      setIsGeneratingAnswers(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {showSuccessMessage && (
+        <div className="fixed top-4 right-4 z-50 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 p-4 max-w-sm w-full animate-fade-in">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <svg className="h-6 w-6 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                Conceptantwoorden gegenereerd
+              </p>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                De antwoorden zijn succesvol toegevoegd aan de vragen.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-md rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -242,20 +456,35 @@ const VragenPage = () => {
               Beheer en beantwoord vragen van Tweede Kamerleden gericht aan de minister.
             </p>
           </div>
-          <div className="flex space-x-3">
+          <div className="flex flex-col md:flex-row gap-3">
+            <button
+              onClick={handleGenerateAnswers}
+              disabled={isGeneratingAnswers || questions.length === 0}
+              className="min-w-[150px] min-h-[48px] inline-flex bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-base font-medium rounded-lg shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all disabled:opacity-50 disabled:hover:bg-white/50 dark:disabled:hover:bg-slate-700/50"
+            >
+              <div className="flex items-start px-5 py-2.5 w-full">
+                <MdOutlineQuestionAnswer className="mr-2 text-xl flex-shrink-0 mt-0.5" />
+                <span className="leading-tight text-left">{isGeneratingAnswers ? 'Antwoorden genereren...' : 'Genereer Concept Antwoorden'}</span>
+              </div>
+            </button>
             <button
               onClick={loadLatestQuestions}
               disabled={isLoading}
-              className="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg text-sm font-medium shadow-sm"
+              className="min-w-[150px] min-h-[48px] inline-flex bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-base font-medium rounded-lg shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all disabled:opacity-50 disabled:hover:bg-white/50 dark:disabled:hover:bg-slate-700/50"
             >
-              <MdRefresh className="mr-2" />
-              {isLoading ? 'Laden...' : 'Laad Vragen'}
+              <div className="flex items-start px-5 py-2.5 w-full">
+                <MdRefresh className="mr-2 text-xl flex-shrink-0 mt-0.5" />
+                <span className="leading-tight text-left">{isLoading ? 'Laden...' : 'Laad Vragen'}</span>
+              </div>
             </button>
             <Link
               href="/transcriptie"
-              className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg text-sm font-medium shadow-sm"
+              className="min-w-[150px] min-h-[48px] inline-flex bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-base font-medium rounded-lg shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all"
             >
-              Nieuwe Transcriptie
+              <div className="flex items-start px-5 py-2.5 w-full">
+                <MdOutlineVideoLibrary className="mr-2 text-xl flex-shrink-0 mt-0.5" />
+                <span className="leading-tight text-left">Nieuwe Transcriptie</span>
+              </div>
             </Link>
           </div>
         </div>
@@ -267,60 +496,112 @@ const VragenPage = () => {
         )}
       </div>
 
-      <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-md rounded-xl p-4 shadow-sm border border-slate-200 dark:border-slate-700">
-        <div className="flex items-center text-slate-700 dark:text-slate-300 mb-3">
-          <MdOutlineFilterList className="mr-2" />
+      <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-md rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700 relative z-40">
+        <div className="flex items-center text-slate-700 dark:text-slate-300 mb-4">
+          <MdOutlineFilterList className="mr-2 text-xl" />
           <h2 className="text-lg font-medium">Filters</h2>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
-              Categorie
-            </label>
-            <select
-              value={filters.topic}
-              onChange={(e) => setFilters({...filters, topic: e.target.value})}
-              className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 relative">
+          <div className="relative group">
+            <button
+              type="button"
+              className="min-w-[200px] w-full bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-base font-medium rounded-lg shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all"
             >
-              <option value="Alle">Alle categorieën</option>
-              {categories.map(topic => (
-                <option key={topic} value={topic}>{topic}</option>
+              <div className="flex items-start px-5 py-2.5 w-full">
+                <MdOutlineLabel className="mr-2 text-xl flex-shrink-0 mt-0.5" />
+                <span className="leading-tight text-left">Categorie: {selectedFilters.category || 'Alle'}</span>
+              </div>
+            </button>
+            <div className="absolute left-0 right-0 mt-2 py-2 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-600 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[60]">
+              <div
+                onClick={() => handleFilterChange('category', '')}
+                className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-sm text-slate-700 dark:text-slate-300"
+              >
+                Alle
+              </div>
+              {categories.map(category => (
+                <div
+                  key={category}
+                  onClick={() => handleFilterChange('category', category)}
+                  className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-sm text-slate-700 dark:text-slate-300"
+                >
+                  {category}
+                </div>
               ))}
-            </select>
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
-              Partij
-            </label>
-            <select
-              value={filters.party}
-              onChange={(e) => setFilters({...filters, party: e.target.value})}
-              className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
+
+          <div className="relative group">
+            <button
+              type="button"
+              className="min-w-[200px] w-full bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-base font-medium rounded-lg shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all"
             >
-              {partyOptions.map(party => (
-                <option key={party} value={party}>{party}</option>
-              ))}
-            </select>
+              <div className="flex items-start px-5 py-2.5 w-full">
+                <MdOutlineRadioButtonChecked className="mr-2 text-xl flex-shrink-0 mt-0.5" />
+                <span className="leading-tight text-left">Status: {selectedFilters.status || 'Alle'}</span>
+              </div>
+            </button>
+            <div className="absolute left-0 right-0 mt-2 py-2 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-600 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[60]">
+              <div
+                onClick={() => handleFilterChange('status', '')}
+                className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-sm text-slate-700 dark:text-slate-300"
+              >
+                Alle
+              </div>
+              <div
+                onClick={() => handleFilterChange('status', 'Draft')}
+                className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-sm text-slate-700 dark:text-slate-300"
+              >
+                Draft
+              </div>
+              <div
+                onClick={() => handleFilterChange('status', 'Herschreven')}
+                className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-sm text-slate-700 dark:text-slate-300"
+              >
+                Herschreven
+              </div>
+              <div
+                onClick={() => handleFilterChange('status', 'Definitief')}
+                className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-sm text-slate-700 dark:text-slate-300"
+              >
+                Definitief
+              </div>
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
-              Status
-            </label>
-            <select
-              value={filters.status}
-              onChange={(e) => setFilters({...filters, status: e.target.value})}
-              className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
+
+          <div className="relative group">
+            <button
+              type="button"
+              className="min-w-[200px] w-full bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-base font-medium rounded-lg shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all"
             >
-              <option value="Alle">Alle statussen</option>
-              {['Draft', 'Herschreven', 'Definitief'].map(status => (
-                <option key={status} value={status}>{status}</option>
+              <div className="flex items-start px-5 py-2.5 w-full">
+                <MdPerson className="mr-2 text-xl flex-shrink-0 mt-0.5" />
+                <span className="leading-tight text-left">Partij: {selectedFilters.party || 'Alle'}</span>
+              </div>
+            </button>
+            <div className="absolute left-0 right-0 mt-2 py-2 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-600 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[60]">
+              <div
+                onClick={() => handleFilterChange('party', '')}
+                className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-sm text-slate-700 dark:text-slate-300"
+              >
+                Alle
+              </div>
+              {Array.from(new Set(questions.map(q => q.party || '').filter(party => party !== ''))).map(party => (
+                <div
+                  key={party}
+                  onClick={() => handleFilterChange('party', party)}
+                  className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-sm text-slate-700 dark:text-slate-300"
+                >
+                  {party}
+                </div>
               ))}
-            </select>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-6 relative z-30">
         {filteredQuestions.length > 0 ? (
           filteredQuestions.map(question => (
             <QuestionCard
@@ -337,10 +618,12 @@ const VragenPage = () => {
             <button
               onClick={loadLatestQuestions}
               disabled={isLoading}
-              className="mt-4 inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-medium"
+              className="min-w-[200px] min-h-[48px] inline-flex bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-base font-medium rounded-lg shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all disabled:opacity-50 disabled:hover:bg-white/50 dark:disabled:hover:bg-slate-700/50"
             >
-              <MdRefresh className="mr-2" />
-              {isLoading ? 'Laden...' : 'Laad Geëxtraheerde Vragen'}
+              <div className="flex items-start px-5 py-2.5 w-full">
+                <MdRefresh className="mr-2 text-xl flex-shrink-0 mt-0.5" />
+                <span className="leading-tight text-left">{isLoading ? 'Laden...' : 'Laad Geëxtraheerde Vragen'}</span>
+              </div>
             </button>
           </div>
         )}

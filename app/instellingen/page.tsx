@@ -1,37 +1,25 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  MdAdd,
-  MdCheckCircle,
-  MdDelete,
-  MdOutlineAdminPanelSettings,
-  MdOutlineApi,
-  MdOutlineCategory,
-  MdWarning
+    MdCheckCircle,
+    MdOutlineAdminPanelSettings,
+    MdOutlineApi,
+    MdWarning
 } from 'react-icons/md';
 import { AnthropicService } from '../lib/anthropic-service';
 import { useStore } from '../lib/store';
 
 export default function SettingsPage() {
-  const { settings, categories, updateSettings, addCategory, removeCategory } = useStore(state => ({
-    settings: state.settings,
-    categories: state.categories,
-    updateSettings: state.updateSettings,
-    addCategory: state.addCategory,
-    removeCategory: state.removeCategory
-  }));
+  const { settings, updateSettings } = useStore();
 
-  const [assemblyAIKey, setAssemblyAIKey] = useState(settings.assemblyAIKey);
-  const [newCategory, setNewCategory] = useState('');
+  const [assemblyAIKey, setAssemblyAIKey] = useState(settings?.assemblyAIKey || '');
+  const [anthropicKey, setAnthropicKey] = useState(settings?.anthropicKey || '');
   const [adminUsers, setAdminUsers] = useState([
-    { id: 1, name: 'Jan-Willem de Vries', email: 'jwdevries@minezk.nl', role: 'Admin' },
-    { id: 2, name: 'Marieke Jansen', email: 'mjansen@minezk.nl', role: 'Editor' },
-    { id: 3, name: 'Thomas Bergmans', email: 'tbergmans@minezk.nl', role: 'Viewer' },
+    { id: 1, name: 'R de Bruin', email: 'rmmdebruin[at]gmail[dot]com', role: 'Admin' },
   ]);
   const [apiTestResult, setApiTestResult] = useState<string | null>(null);
   const [assemblyAITestResult, setAssemblyAITestResult] = useState<string | null>(null);
-  const [anthropicKey, setAnthropicKey] = useState(settings.anthropicKey || '');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
   const [anthropicService, setAnthropicService] = useState<AnthropicService | null>(null);
@@ -42,28 +30,6 @@ export default function SettingsPage() {
       setAnthropicService(new AnthropicService(anthropicKey));
     }
   }, [anthropicKey]);
-
-  // Update store settings when API keys change
-  useEffect(() => {
-    updateSettings({ assemblyAIKey, anthropicKey });
-  }, [assemblyAIKey, anthropicKey, updateSettings]);
-
-  const handleAddCategory = () => {
-    if (newCategory.trim() && !categories.includes(newCategory.trim())) {
-      addCategory(newCategory.trim());
-      setNewCategory('');
-    }
-  };
-
-  const handleDeleteCategory = (category: string) => {
-    removeCategory(category);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleAddCategory();
-    }
-  };
 
   const handleAnthropicApiTest = async () => {
     if (!anthropicService) {
@@ -98,19 +64,31 @@ export default function SettingsPage() {
   };
 
   const handleAssemblyAITest = async () => {
+    if (!assemblyAIKey) {
+      setAssemblyAITestResult('API-sleutel is niet geconfigureerd.');
+      return;
+    }
+
     setAssemblyAITestResult('Testen...');
     try {
-      // Simple API check to verify the key - just using the headers endpoint
-      const response = await fetch('https://api.assemblyai.com/v2', {
-        method: 'GET',
+      const response = await fetch('/api/assemblyai/test', {
+        method: 'POST',
         headers: {
-          'authorization': assemblyAIKey
-        }
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          apiKey: assemblyAIKey
+        }),
       });
 
-      const success = response.ok;
-      setAssemblyAITestResult(success ? 'Test geslaagd! API-sleutel werkt correct.' : 'Test mislukt. Controleer uw API-sleutel.');
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'API test failed');
+      }
+
+      setAssemblyAITestResult('Test geslaagd! API-sleutel werkt correct.');
     } catch (error) {
+      console.error('Error testing AssemblyAI API:', error);
       setAssemblyAITestResult(`Test mislukt: ${error instanceof Error ? error.message : 'Onbekende fout'}`);
     }
   };
@@ -158,11 +136,16 @@ export default function SettingsPage() {
             </label>
             <div className="flex items-center gap-3">
               <input
-                type="password"
+                type="text"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck="false"
+                data-form-type="other"
                 value={anthropicKey}
                 onChange={(e) => setAnthropicKey(e.target.value)}
                 placeholder="sk-ant-api03-..."
-                className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
+                className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-mono tracking-wider [text-security:disc] [-webkit-text-security:disc]"
               />
               <button
                 onClick={handleAnthropicApiTest}
@@ -187,11 +170,16 @@ export default function SettingsPage() {
             </label>
             <div className="flex items-center gap-3">
               <input
-                type="password"
+                type="text"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck="false"
+                data-form-type="other"
                 value={assemblyAIKey}
                 onChange={(e) => setAssemblyAIKey(e.target.value)}
                 placeholder="Vul uw AssemblyAI API sleutel in"
-                className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
+                className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-mono tracking-wider [text-security:disc] [-webkit-text-security:disc]"
               />
               <button
                 onClick={handleAssemblyAITest}
@@ -246,46 +234,6 @@ export default function SettingsPage() {
 
       <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-md rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
         <div className="flex items-center text-slate-700 dark:text-slate-300 mb-4">
-          <MdOutlineCategory className="mr-2 text-xl" />
-          <h2 className="text-lg font-medium">Vraag Categorieën</h2>
-        </div>
-
-        <div className="mb-4">
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={newCategory}
-              onChange={(e) => setNewCategory(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Nieuwe categorie"
-              className="flex-1 p-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200"
-            />
-            <button
-              onClick={handleAddCategory}
-              className="p-2 bg-green-500 text-white rounded-lg"
-            >
-              <MdAdd />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          {categories.map((category) => (
-            <div key={category} className="flex items-center bg-slate-100 dark:bg-slate-700 px-3 py-2 rounded-lg">
-              <span className="text-slate-700 dark:text-slate-300 text-sm">{category}</span>
-              <button
-                onClick={() => handleDeleteCategory(category)}
-                className="ml-2 text-red-500 hover:text-red-700 dark:hover:text-red-300"
-              >
-                <MdDelete />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-md rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-        <div className="flex items-center text-slate-700 dark:text-slate-300 mb-4">
           <MdOutlineAdminPanelSettings className="mr-2 text-xl" />
           <h2 className="text-lg font-medium">Gebruikersbeheer</h2>
         </div>
@@ -297,7 +245,6 @@ export default function SettingsPage() {
                 <th className="text-left py-3 px-4 text-sm font-medium text-slate-500 dark:text-slate-400">Naam</th>
                 <th className="text-left py-3 px-4 text-sm font-medium text-slate-500 dark:text-slate-400">Email</th>
                 <th className="text-left py-3 px-4 text-sm font-medium text-slate-500 dark:text-slate-400">Rol</th>
-                <th className="text-right py-3 px-4 text-sm font-medium text-slate-500 dark:text-slate-400">Acties</th>
               </tr>
             </thead>
             <tbody>
@@ -306,11 +253,6 @@ export default function SettingsPage() {
                   <td className="py-3 px-4 text-slate-700 dark:text-slate-300">{user.name}</td>
                   <td className="py-3 px-4 text-slate-700 dark:text-slate-300">{user.email}</td>
                   <td className="py-3 px-4 text-slate-700 dark:text-slate-300">{user.role}</td>
-                  <td className="py-3 px-4 text-right">
-                    <button className="text-red-500 hover:text-red-700 dark:hover:text-red-300">
-                      <MdDelete />
-                    </button>
-                  </td>
                 </tr>
               ))}
             </tbody>

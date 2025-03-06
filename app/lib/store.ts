@@ -53,6 +53,7 @@ interface StoreState {
   addCategory: (category: string) => void;
   removeCategory: (category: string) => void;
   loadQuestionsFromFile: (questions: any[]) => void;
+  resetData: () => Promise<void>;
 }
 
 // Create the store
@@ -61,7 +62,7 @@ export const useStore = create<StoreState>()(
     (set) => ({
       questions: [],
       transcripts: [],
-      categories: ['Economie', 'Klimaat', 'Landbouw', 'Infrastructuur', 'Onderwijs'],
+      categories: ['Algemeen'],
       settings: {
         assemblyAIKey: defaultAssemblyAIKey,
         anthropicKey: defaultAnthropicKey
@@ -119,26 +120,99 @@ export const useStore = create<StoreState>()(
         })),
       loadQuestionsFromFile: (extractedQuestions) =>
         set((state) => {
+          console.log(`Loading ${extractedQuestions.length} questions into store`);
+
           // Convert extracted questions to the format used in the store
-          const newQuestions = extractedQuestions.map(q => ({
-            id: Math.random().toString(36).substring(7),
-            text: q.question_text,
-            question_text: q.question_text,
-            status: 'Draft' as const,
-            timestamp: Date.now(),
-            videoTimestamp: q.timestamp,
-            speaker: q.speaker,
-            party: q.party,
-            category: q.category,
-            draftAnswer: '',
-            nextAction: 'Beantwoorden',
-            personResponsible: 'Minister'
-          }));
+          const newQuestions = extractedQuestions.map(q => {
+            // Check if this question already exists in the store
+            const existingQuestion = state.questions.find(
+              existingQ =>
+                (existingQ.question_text && existingQ.question_text === q.question_text) ||
+                existingQ.text === q.text
+            );
+
+            // Log the draft answer for debugging
+            if (q.draftAnswer) {
+              console.log(`Question has draft answer: ${q.question_text?.substring(0, 30)}...`);
+            }
+
+            return {
+              id: existingQuestion?.id || q.id || Math.random().toString(36).substring(7),
+              text: q.question_text || q.text,
+              question_text: q.question_text || q.text,
+              status: existingQuestion?.status || q.status || 'Draft' as const,
+              timestamp: existingQuestion?.timestamp || q.timestamp || Date.now(),
+              videoTimestamp: q.timestamp || q.videoTimestamp || existingQuestion?.videoTimestamp,
+              speaker: q.speaker || existingQuestion?.speaker,
+              party: q.party || existingQuestion?.party,
+              category: q.category || existingQuestion?.category,
+              // Use the new draft answer if it exists (including empty string), otherwise keep existing
+              draftAnswer: 'draftAnswer' in q ? q.draftAnswer : existingQuestion?.draftAnswer,
+              nextAction: q.nextAction || existingQuestion?.nextAction || 'Herschrijven',
+              personResponsible: q.personResponsible || existingQuestion?.personResponsible || 'Verantwoordelijke'
+            };
+          });
+
+          // Filter out questions that already exist in the store
+          const uniqueNewQuestions = newQuestions.filter(newQ =>
+            !state.questions.some(existingQ =>
+              (existingQ.question_text && existingQ.question_text === newQ.question_text) ||
+              existingQ.text === newQ.text
+            )
+          );
+
+          // Update existing questions with new data
+          const updatedExistingQuestions = state.questions.map(existingQ => {
+            const matchingNewQ = newQuestions.find(newQ =>
+              (existingQ.question_text && existingQ.question_text === newQ.question_text) ||
+              existingQ.text === newQ.text
+            );
+
+            if (matchingNewQ) {
+              // Log when updating an existing question with a draft answer
+              if (matchingNewQ.draftAnswer && matchingNewQ.draftAnswer !== existingQ.draftAnswer) {
+                console.log(`Updating existing question with draft answer: ${existingQ.text?.substring(0, 30)}...`);
+              }
+
+              return {
+                ...existingQ,
+                ...matchingNewQ,
+                // Use the new draft answer if it exists (including empty string), otherwise keep existing
+                draftAnswer: 'draftAnswer' in matchingNewQ ? matchingNewQ.draftAnswer : existingQ.draftAnswer
+              };
+            }
+
+            return existingQ;
+          });
+
+          console.log(`Store updated: ${updatedExistingQuestions.length} existing questions updated, ${uniqueNewQuestions.length} new questions added`);
 
           return {
-            questions: [...state.questions, ...newQuestions]
+            questions: [...updatedExistingQuestions, ...uniqueNewQuestions]
           };
         }),
+      resetData: async () => {
+        try {
+          // Reset the store state
+          set(() => ({
+            questions: [],
+            transcripts: [],
+            categories: ['Algemeen']
+          }));
+
+          // Call the reset API endpoint
+          const response = await fetch('/api/reset', {
+            method: 'POST'
+          });
+
+          if (!response.ok) {
+            throw new Error('Failed to reset data on server');
+          }
+        } catch (error) {
+          console.error('Error resetting data:', error);
+          throw error;
+        }
+      },
     }),
     {
       name: 'llminister-storage',
