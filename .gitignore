@@ -2,6 +2,7 @@
 
 # dependencies
 /llminister/node_modules
+llminister/.next/
 /.pnp
 .pnp.*
 .yarn/*
@@ -19,6 +20,7 @@
 
 # production
 /build
+/data
 
 # misc
 .DS_Store
