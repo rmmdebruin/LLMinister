@@ -20,7 +20,10 @@ llminister/.next/
 
 # production
 /build
-/data
+
+# data
+*.mp4
+!/data/debate_videos/*trimmed_first_part*.mp4
 
 # misc
 .DS_Store
