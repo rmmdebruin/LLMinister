@@ -1,94 +1,90 @@
-import { AnthropicService } from './anthropic-service';
-import { Question, useStore } from './store';
-
 /**
  * Service for handling video transcription and question extraction
  */
 export class TranscriptionService {
-  private assemblyAIService: AssemblyAIService | null = null;
-  private anthropicService: AnthropicService;
+  private assemblyAIKey: string;
+  private anthropicKey: string;
+  private backendUrl: string;
 
   constructor() {
-    const store = useStore.getState();
-    this.anthropicService = new AnthropicService(store.settings.anthropicKey);
+    this.assemblyAIKey = process.env.NEXT_PUBLIC_ASSEMBLYAI_API_KEY || '';
+    this.anthropicKey = process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY || '';
+    this.backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8000';
 
-    // Only initialize AssemblyAI service if we have an API key
-    if (store.settings.assemblyAIKey) {
-      this.assemblyAIService = new AssemblyAIService(store.settings.assemblyAIKey);
+    if (!this.assemblyAIKey) {
+      throw new Error('AssemblyAI API key not configured');
+    }
+
+    if (!this.anthropicKey) {
+      throw new Error('Anthropic API key not configured');
     }
   }
 
-  /**
-   * Process a video file: transcribe and extract questions
-   */
-  async processVideo(
-    file: File,
-    progressCallback?: (progress: number, message: string) => void
-  ): Promise<{
-    transcript: string;
-    questions: Question[];
-  }> {
-    if (!this.assemblyAIService) {
-      throw new Error('AssemblyAI API key is not configured. Please add your API key in the settings.');
-    }
-
+  async transcribeVideo(file: File, onProgress: (progress: string) => void): Promise<{ transcript: string; questions: any[] }> {
     try {
-      // Start transcription
-      if (progressCallback) progressCallback(10, 'Starting transcription...');
+      onProgress('Uploading video...');
 
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('apiKey', this.assemblyAIService.getApiKey());
 
-      const response = await fetch('/api/transcribe', {
+      // Send video to FastAPI backend for transcription
+      const transcribeResponse = await fetch(`${this.backendUrl}/api/transcribe`, {
         method: 'POST',
-        body: formData
+        headers: {
+          'X-AssemblyAI-Key': this.assemblyAIKey,
+        },
+        body: formData,
+        mode: 'cors',
+        credentials: 'include',
       });
 
-      if (!response.ok) {
-        let errorMessage = `Error ${response.status}: ${response.statusText}`;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorMessage;
-        } catch (e) {
-          // If we can't parse the JSON, just use the status text
-        }
-        throw new Error(errorMessage);
+      if (!transcribeResponse.ok) {
+        const error = await transcribeResponse.text();
+        throw new Error(`Transcription failed: ${error}`);
       }
 
-      const data = await response.json();
+      const transcribeResult = await transcribeResponse.json();
 
-      if (data.status !== 'success' || !data.transcript) {
-        throw new Error(data.error || 'Transcription failed with unknown error');
+      if (transcribeResult.status === 'error') {
+        throw new Error(transcribeResult.error);
       }
 
-      if (progressCallback) progressCallback(100, 'Processing complete!');
+      onProgress('Extracting questions...');
+
+      // Extract questions using the transcript
+      const extractResponse = await fetch(`${this.backendUrl}/api/questions/extract`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Anthropic-Key': this.anthropicKey,
+        },
+        body: JSON.stringify({
+          transcript_path: transcribeResult.transcript_path,
+        }),
+        mode: 'cors',
+        credentials: 'include',
+      });
+
+      if (!extractResponse.ok) {
+        const error = await extractResponse.text();
+        throw new Error(`Question extraction failed: ${error}`);
+      }
+
+      const extractResult = await extractResponse.json();
+
+      if (extractResult.status === 'error') {
+        throw new Error(extractResult.error);
+      }
+
+      onProgress('Done!');
 
       return {
-        transcript: data.transcript,
-        questions: data.questions || []
+        transcript: transcribeResult.transcript,
+        questions: extractResult.questions,
       };
     } catch (error) {
-      console.error('Error in transcription process:', error);
+      console.error('Transcription error:', error);
       throw error;
     }
   }
 }
-
-/**
- * AssemblyAI API service for transcription
- */
-class AssemblyAIService {
-  private apiKey: string;
-
-  constructor(apiKey: string) {
-    this.apiKey = apiKey;
-  }
-
-  getApiKey(): string {
-    return this.apiKey;
-  }
-}
-
-// Export a singleton instance
-export const transcriptionService = new TranscriptionService();

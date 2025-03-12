@@ -1,22 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import path from 'path';
-import { QuestionController } from '../../../backend/src/controllers/questionController';
+
+const PYTHON_BACKEND_URL = process.env.PYTHON_BACKEND_URL || 'http://localhost:8000';
 
 export async function GET() {
   try {
-    const projectRoot = path.resolve(process.cwd());
-    const dataDir = path.join(projectRoot, '..', 'data');
-
-    // Initialize controller with a dummy API key since it's not needed for GET
-    const controller = new QuestionController('dummy-key', dataDir);
-
-    const questions = await controller.getQuestions();
-
-    return NextResponse.json({
-      status: 'success',
-      questions,
-      message: 'Questions retrieved successfully'
+    const response = await fetch(`${PYTHON_BACKEND_URL}/questions`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return NextResponse.json(data);
   } catch (error) {
     console.error('Error getting questions:', error);
     return NextResponse.json(
@@ -37,17 +37,21 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const projectRoot = path.resolve(process.cwd());
-    const dataDir = path.join(projectRoot, '..', 'data');
-
-    const controller = new QuestionController(apiKey, dataDir);
-    const updatedQuestion = await controller.updateQuestion(questionId, update);
-
-    return NextResponse.json({
-      status: 'success',
-      question: updatedQuestion,
-      message: 'Question updated successfully'
+    const response = await fetch(`${PYTHON_BACKEND_URL}/questions/${questionId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': apiKey,
+      },
+      body: JSON.stringify(update),
     });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return NextResponse.json(data);
   } catch (error) {
     console.error('Error updating question:', error);
     return NextResponse.json(
@@ -89,53 +93,29 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const projectRoot = path.resolve(process.cwd());
-    const dataDir = path.join(projectRoot, '..', 'data');
+    // Construct query parameters
+    const queryParams = new URLSearchParams();
+    if (questionId) queryParams.append('id', questionId);
+    if (questionText) queryParams.append('text', questionText);
 
-    const controller = new QuestionController(apiKey, dataDir);
-
-    // Get all questions first to ensure we have the latest data
-    const questions = await controller.getQuestions();
-    let targetQuestionId = questionId;
-
-    if (!targetQuestionId && questionText) {
-      // Find question by text if no ID provided
-      const questionToDelete = questions.find(q =>
-        q.question_text === questionText
-      );
-
-      if (!questionToDelete) {
-        return NextResponse.json(
-          { error: 'Question not found with the specified text' },
-          { status: 404 }
-        );
-      }
-
-      targetQuestionId = questionToDelete.id;
-    }
-
-    if (!targetQuestionId) {
-      return NextResponse.json(
-        { error: 'Could not determine which question to delete' },
-        { status: 400 }
-      );
-    }
-
-    // Delete the question
-    await controller.deleteQuestion(targetQuestionId);
-
-    return NextResponse.json({
-      status: 'success',
-      message: 'Question deleted successfully'
+    const response = await fetch(`${PYTHON_BACKEND_URL}/questions?${queryParams}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': apiKey,
+      },
     });
 
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return NextResponse.json(data);
   } catch (error) {
     console.error('Error deleting question:', error);
     return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        details: error instanceof Error ? error.stack : undefined
-      },
+      { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }

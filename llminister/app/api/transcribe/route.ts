@@ -1,171 +1,174 @@
-import { exec } from 'child_process';
-import fs from 'fs';
+import { mkdir, writeFile } from 'fs/promises';
 import { NextRequest, NextResponse } from 'next/server';
-import os from 'os';
 import path from 'path';
-import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+const PYTHON_BACKEND_URL = process.env.PYTHON_BACKEND_URL || 'http://localhost:8000';
+const UPLOAD_TIMEOUT = 10 * 60 * 1000; // 10 minutes timeout for large files
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB in bytes
 
-function generatePythonScript(projectRoot: string, dataDir: string, tempFilePath: string, apiKey: string, fileName: string): string {
-  return `
-import sys
-import os
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
 
-# Add the backend directory to Python path
-backend_dir = os.path.join('${projectRoot}', 'backend', 'src')
-sys.path.append(backend_dir)
+async function saveTranscript(transcript: string): Promise<string> {
+  // Create timestamp for unique filename
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const filename = `transcript_${timestamp}.txt`;
 
-try:
-    from backend.src.controllers.transcription_controller import TranscriptionController
-    import json
+  // Ensure the transcripts directory exists
+  const transcriptsDir = path.join(process.cwd(), '..', 'data', 'transcripts');
+  await mkdir(transcriptsDir, { recursive: true });
 
-    # Initialize controller
-    controller = TranscriptionController('${apiKey}', '${dataDir}')
+  // Save the transcript
+  const filepath = path.join(transcriptsDir, filename);
+  await writeFile(filepath, transcript);
 
-    # Process video
-    with open('${tempFilePath}', 'rb') as f:
-        result = controller.process_video(f.read(), '${fileName}')
-
-    # Print result
-    print('TRANSCRIPTION_RESULT:', json.dumps(result))
-
-except ImportError as e:
-    print('TRANSCRIPTION_ERROR: Failed to import required modules. Error: ' + str(e))
-    sys.exit(1)
-except Exception as e:
-    print('TRANSCRIPTION_ERROR: ' + str(e))
-    sys.exit(1)
-`;
+  return filepath;
 }
 
 export async function POST(request: NextRequest) {
-  let tempFilePath = '';
-  let scriptPath = '';
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), UPLOAD_TIMEOUT);
 
   try {
-    const formData = await request.formData();
-    const file = formData.get('file') as File;
-    const apiKey = formData.get('apiKey') as string;
+    const contentType = request.headers.get('content-type');
 
-    if (!file || !apiKey) {
+    // Handle JSON request for saving transcript
+    if (contentType?.includes('application/json')) {
+      const { transcript } = await request.json();
+      if (!transcript) {
+        return NextResponse.json(
+          {
+            status: 'error',
+            error: 'Missing transcript in request body'
+          },
+          { status: 400 }
+        );
+      }
+
+      const transcriptPath = await saveTranscript(transcript);
+      console.log('Saved transcript to:', transcriptPath);
+
+      return NextResponse.json({
+        status: 'success',
+        transcriptPath: transcriptPath
+      });
+    }
+
+    // Handle multipart form data for video file upload
+    if (!contentType || !contentType.includes('multipart/form-data')) {
       return NextResponse.json(
-        { error: 'Missing file or API key' },
+        {
+          status: 'error',
+          error: 'Request must be multipart/form-data or application/json'
+        },
         { status: 400 }
       );
     }
 
-    // Create a temporary file
-    const tempDir = os.tmpdir();
-    const fileExt = path.extname(file.name);
-    tempFilePath = path.join(tempDir, `debate_video_${Date.now()}${fileExt}`);
-
-    // Convert File to Buffer and write to temp file
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    fs.writeFileSync(tempFilePath, buffer);
-
-    // Get the absolute paths
-    const projectRoot = path.resolve(process.cwd());
-    const dataDir = path.join(projectRoot, '..', 'data');
-
-    // Ensure data directories exist
-    const videosDir = path.join(dataDir, 'debate_videos');
-    const transcriptsDir = path.join(dataDir, 'transcripts');
-    fs.mkdirSync(videosDir, { recursive: true });
-    fs.mkdirSync(transcriptsDir, { recursive: true });
-
-    // Generate Python script
-    const pythonScript = generatePythonScript(projectRoot, dataDir, tempFilePath, apiKey, file.name);
-
-    // Save Python script to temp file
-    scriptPath = path.join(tempDir, `transcribe_${Date.now()}.py`);
-    fs.writeFileSync(scriptPath, pythonScript);
-
-    console.log('Executing Python script:', scriptPath);
-    console.log('Video file path:', tempFilePath);
-
-    // Execute Python script with system Python
-    const { stdout, stderr } = await execAsync(`python3 "${scriptPath}"`);
-
-    if (stderr) {
-      console.error('Python stderr:', stderr);
-    }
-
-    // Clean up temporary files
-    try {
-      if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-      if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
-    } catch (error) {
-      console.error('Error cleaning up temporary files:', error);
-    }
-
-    // Check for errors in output
-    if (stdout.includes('TRANSCRIPTION_ERROR:')) {
-      const error = stdout.split('TRANSCRIPTION_ERROR:')[1].trim();
-      throw new Error(error);
-    }
-
-    // Parse the output to get the transcription result
-    const resultLine = stdout.split('\n').find(line => line.startsWith('TRANSCRIPTION_RESULT:'));
-
-    if (!resultLine) {
-      throw new Error('Could not find transcription result in output');
-    }
-
-    const result = JSON.parse(resultLine.replace('TRANSCRIPTION_RESULT:', ''));
-
-    const requestUrl = new URL(request.url);
-    const baseUrl = `${requestUrl.protocol}//${requestUrl.host}`;
-
-    if (result.status === 'success') {
-      // Automatically trigger question extraction using the Anthropic API key
-      const anthropicApiKey = process.env.NEXT_PUBLIC_ANTHROPIC_API_KEY;
-
-      if (!anthropicApiKey) {
-        console.error('Anthropic API key not found in environment variables');
-        return NextResponse.json(result);
-      }
-
-      console.log('Using Anthropic API Key for extraction');
-
-      const extractResponse = await fetch(`${baseUrl}/api/questions/extract`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+    // Get API key from header
+    const apiKey = request.headers.get('x-api-key');
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          error: 'Missing API key in headers'
         },
-        body: JSON.stringify({
-          apiKey: anthropicApiKey,
-          transcript: result.transcript
-        }),
-      });
+        { status: 400 }
+      );
+    }
 
-      if (!extractResponse.ok) {
-        console.error('Failed to extract questions:', await extractResponse.text());
-      } else {
-        const extractResult = await extractResponse.json();
-        result.questions = extractResult.questions;
+    // Check content length for file uploads
+    const contentLength = parseInt(request.headers.get('content-length') || '0', 10);
+    if (contentLength > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          error: `File size exceeds maximum limit of ${MAX_FILE_SIZE / (1024 * 1024)}MB`
+        },
+        { status: 413 }
+      );
+    }
+
+    const formData = await request.formData();
+    const file = formData.get('file') as File;
+
+    if (!file) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          error: 'Missing file'
+        },
+        { status: 400 }
+      );
+    }
+
+    // Verify file size after getting the file
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        {
+          status: 'error',
+          error: `File size exceeds maximum limit of ${MAX_FILE_SIZE / (1024 * 1024)}MB`
+        },
+        { status: 413 }
+      );
+    }
+
+    // Create form data for the Python backend
+    const backendFormData = new FormData();
+    backendFormData.append('file', file);
+
+    // Send request to Python backend with timeout
+    console.log('Starting transcription...');
+    const response = await fetch(`${PYTHON_BACKEND_URL}/api/transcribe`, {
+      method: 'POST',
+      headers: {
+        'X-API-Key': apiKey,
+      },
+      body: backendFormData,
+      signal: controller.signal,
+    });
+
+    let result;
+    if (!response.ok) {
+      let errorDetail: string;
+      try {
+        const errorData = await response.json();
+        errorDetail = errorData.detail || errorData.error || `HTTP error! status: ${response.status}`;
+      } catch (e) {
+        // If response is not JSON, use text content or status
+        errorDetail = await response.text().catch(() => `HTTP error! status: ${response.status}`);
       }
+      throw new Error(errorDetail);
     }
 
-    return NextResponse.json(result);
+    result = await response.json();
 
-  } catch (error: any) {
-    // Clean up temporary files in case of error
-    try {
-      if (tempFilePath && fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
-      if (scriptPath && fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
-    } catch (cleanupError) {
-      console.error('Error cleaning up temporary files:', cleanupError);
+    if (result.status !== 'success') {
+      throw new Error(result.error || 'Transcription failed');
     }
 
-    console.error('Transcription error:', error);
+    // Save the transcript to a file
+    const transcriptPath = await saveTranscript(result.transcript);
+    console.log('Saved transcript to:', transcriptPath);
+
+    return NextResponse.json({
+      status: 'success',
+      transcript: result.transcript,
+      transcriptPath: transcriptPath
+    });
+  } catch (error) {
+    console.error('Error in transcription:', error);
     return NextResponse.json(
       {
-        error: `Transcription failed: ${error?.message || 'Unknown error'}`,
-        details: error?.stack
+        status: 'error',
+        error: error instanceof Error ? error.message : 'Unknown error'
       },
-      { status: 500 }
+      { status: error instanceof Error && error.message.includes('aborted') ? 408 : 500 }
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
