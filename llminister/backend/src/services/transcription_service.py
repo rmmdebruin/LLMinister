@@ -11,7 +11,7 @@ def transcribe_video_file(file_bytes: bytes, filename: str) -> str:
     """
     ASSEMBLYAI_API_KEY = os.environ.get("ASSEMBLYAI_API_KEY")  # set in .env / environment
 
-    # print the whole .env file
+    # check if ASSEMBLYAI_API_KEY is set
     if not ASSEMBLYAI_API_KEY:
         raise Exception("No ASSEMBLYAI_API_KEY in environment.")
 

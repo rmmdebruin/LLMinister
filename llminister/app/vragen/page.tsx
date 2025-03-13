@@ -2,16 +2,36 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { MdDelete, MdEdit, MdExpandLess, MdExpandMore, MdOutlineAssignmentTurnedIn, MdOutlineFilterList, MdOutlineLabel, MdOutlineQuestionAnswer, MdOutlineRadioButtonChecked, MdOutlineVideoLibrary, MdPerson, MdRefresh, MdSave } from 'react-icons/md';
+import {
+  MdDelete,
+  MdEdit,
+  MdExpandLess,
+  MdExpandMore,
+  // 1) Add this import for the new button icon
+  MdHelp,
+  MdOutlineAssignmentTurnedIn,
+  MdOutlineFilterList,
+  MdOutlineLabel,
+  MdOutlineQuestionAnswer,
+  MdOutlineRadioButtonChecked,
+  MdOutlineVideoLibrary,
+  MdPerson,
+  MdRefresh,
+  MdSave
+} from 'react-icons/md';
 import { Question, useStore } from '../lib/store';
 
 export default function VragenPage() {
+  // 2) Existing state
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isGeneratingAnswers, setIsGeneratingAnswers] = useState(false);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
 
-  // Filters
+  // 3) New state for extracting questions
+  const [isExtracting, setIsExtracting] = useState(false);
+
+  // 4) Filters
   const [selectedFilters, setSelectedFilters] = useState({
     category: '',
     party: '',
@@ -24,7 +44,7 @@ export default function VragenPage() {
   const updateQuestion = useStore((state) => state.updateQuestion);
   const deleteQuestion = useStore((state) => state.deleteQuestion);
 
-  // Filtered
+  // Filtered questions
   const filteredQuestions = questions.filter(q => {
     const catMatch = !selectedFilters.category || q.category === selectedFilters.category;
     const partyMatch = !selectedFilters.party || q.party === selectedFilters.party;
@@ -35,8 +55,10 @@ export default function VragenPage() {
   useEffect(() => {
     // auto-load questions on page mount
     handleLoadQuestions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Existing function to load questions from backend
   const handleLoadQuestions = async () => {
     setIsLoading(true);
     setLoadError(null);
@@ -55,10 +77,10 @@ export default function VragenPage() {
     }
   };
 
+  // Existing function to generate answers
   const handleGenerateAnswers = async () => {
     try {
       setIsGeneratingAnswers(true);
-      // Gather the question IDs
       const ids = questions.map(q => q.id);
       const res = await fetch(`${process.env.NEXT_PUBLIC_PYTHON_API_URL}/generate-answers`, {
         method: 'POST',
@@ -81,12 +103,38 @@ export default function VragenPage() {
     }
   };
 
+  // 5) New function to extract questions from the latest transcript
+  const handleExtractLatestQuestions = async () => {
+    try {
+      setIsExtracting(true);
+      const res = await fetch(`${process.env.NEXT_PUBLIC_PYTHON_API_URL}/extract-latest-questions`, {
+        method: 'POST'
+      });
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      const data = await res.json();
+      if (data.questions) {
+        loadQuestionsFromFile(data.questions);
+        setShowSuccessMessage(true);
+        setTimeout(() => setShowSuccessMessage(false), 3000);
+      }
+    } catch (err: any) {
+      console.error('Error extracting questions:', err);
+      alert(`Fout bij extractie: ${err.message}`);
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  // Handle filter changes
   const handleFilterChange = (filter: 'category' | 'party' | 'status', value: string) => {
     setSelectedFilters(prev => ({ ...prev, [filter]: value }));
   };
 
   return (
     <div className="space-y-6">
+      {/* Success message popup */}
       {showSuccessMessage && (
         <div className="fixed top-4 right-4 z-50 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 p-4 max-w-sm w-full animate-fade-in">
           <div className="flex items-center">
@@ -95,16 +143,17 @@ export default function VragenPage() {
             </svg>
             <div className="ml-3">
               <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                Conceptantwoorden gegenereerd
+                Conceptantwoorden/vragen geüpdatet
               </p>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                De antwoorden zijn succesvol toegevoegd aan de vragen.
+                De vragen of antwoorden zijn succesvol verwerkt.
               </p>
             </div>
           </div>
         </div>
       )}
 
+      {/* Top bar */}
       <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-md rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -138,6 +187,22 @@ export default function VragenPage() {
                 <span className="leading-tight text-left">{isLoading ? 'Laden...' : 'Laad Vragen'}</span>
               </div>
             </button>
+            <button
+              onClick={handleExtractLatestQuestions}
+              disabled={isExtracting}
+              className="min-w-[150px] min-h-[48px] inline-flex bg-white/50 dark:bg-slate-700/50
+                         backdrop-blur-sm text-slate-700 dark:text-slate-300
+                         text-base font-medium rounded-lg shadow-sm border border-slate-200
+                         dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70
+                         transition-all disabled:opacity-50"
+            >
+              <div className="flex items-start px-5 py-2.5 w-full">
+                <MdHelp className="mr-2 text-xl flex-shrink-0 mt-0.5" />
+                <span className="leading-tight text-left">
+                  {isExtracting ? 'Vragen extraheren...' : 'Extract Vragen'}
+                </span>
+              </div>
+            </button>
             <Link
               href="/transcriptie"
               className="min-w-[150px] min-h-[48px] inline-flex bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-base font-medium rounded-lg shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all"
@@ -156,6 +221,7 @@ export default function VragenPage() {
         )}
       </div>
 
+      {/* Filter panel */}
       <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-md rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700 relative z-40">
         <div className="flex items-center text-slate-700 dark:text-slate-300 mb-4">
           <MdOutlineFilterList className="mr-2 text-xl" />
@@ -164,7 +230,10 @@ export default function VragenPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 relative">
           {/* Filter for Category */}
           <div className="relative group">
-            <button type="button" className="min-w-[200px] w-full bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-base font-medium rounded-lg shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all">
+            <button
+              type="button"
+              className="min-w-[200px] w-full bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-base font-medium rounded-lg shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all"
+            >
               <div className="flex items-start px-5 py-2.5 w-full">
                 <MdOutlineLabel className="mr-2 text-xl flex-shrink-0 mt-0.5" />
                 <span className="leading-tight text-left">
@@ -193,7 +262,10 @@ export default function VragenPage() {
 
           {/* Filter for Status */}
           <div className="relative group">
-            <button type="button" className="min-w-[200px] w-full bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-base font-medium rounded-lg shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all">
+            <button
+              type="button"
+              className="min-w-[200px] w-full bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-base font-medium rounded-lg shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all"
+            >
               <div className="flex items-start px-5 py-2.5 w-full">
                 <MdOutlineRadioButtonChecked className="mr-2 text-xl flex-shrink-0 mt-0.5" />
                 <span className="leading-tight text-left">
@@ -231,7 +303,10 @@ export default function VragenPage() {
 
           {/* Filter for Party */}
           <div className="relative group">
-            <button type="button" className="min-w-[200px] w-full bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-base font-medium rounded-lg shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all">
+            <button
+              type="button"
+              className="min-w-[200px] w-full bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-base font-medium rounded-lg shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all"
+            >
               <div className="flex items-start px-5 py-2.5 w-full">
                 <MdPerson className="mr-2 text-xl flex-shrink-0 mt-0.5" />
                 <span className="leading-tight text-left">
@@ -260,6 +335,7 @@ export default function VragenPage() {
         </div>
       </div>
 
+      {/* Questions list */}
       <div className="space-y-6 relative z-30">
         {filteredQuestions.length > 0 ? (
           filteredQuestions.map(q => (
@@ -278,7 +354,7 @@ export default function VragenPage() {
             <button
               onClick={handleLoadQuestions}
               disabled={isLoading}
-              className="min-w-[200px] min-h-[48px] inline-flex bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-base font-medium rounded-lg shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all disabled:opacity-50"
+              className="min-w-[200px] min-h-[48px] inline-flex bg-white/50 dark:bg-slate-700/50 backdrop-blur-sm text-slate-700 dark:text-slate-300 text-base font-medium rounded-lg shadow-sm border border-slate-200 dark:border-slate-600 hover:bg-white/70 dark:hover:bg-slate-700/70 transition-all disabled:opacity-50 mt-4"
             >
               <div className="flex items-start px-5 py-2.5 w-full">
                 <MdRefresh className="mr-2 text-xl flex-shrink-0 mt-0.5" />
@@ -294,7 +370,7 @@ export default function VragenPage() {
   );
 }
 
-// Reuse your QuestionCard from the original
+// Reuse your QuestionCard from the original code
 function QuestionCard({
   question,
   onUpdateQuestion,

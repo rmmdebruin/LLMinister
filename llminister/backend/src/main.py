@@ -1,5 +1,14 @@
+# --------------------------------------------
+# File: llminister/backend/src/main.py
+# (Add or Update the top lines to load dotenv)
+# --------------------------------------------
 import os
 from typing import List, Optional
+
+# 1) Add these two lines at the top:
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
+
 from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -65,7 +74,20 @@ async def extract_questions(req: ExtractRequest):
             )
         with open(req.transcript_path, "r", encoding="utf-8") as f:
             transcript_text = f.read()
-        questions_list = extract_questions_from_transcript(transcript_text, req.categories)
+
+        # Try to load the list of speakers
+        list_of_speakers = ""
+        speakers_path = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                                    "data", "list_of_speakers", "list_of_speakers.csv")
+        if os.path.exists(speakers_path):
+            with open(speakers_path, 'r', encoding='utf-8') as f:
+                list_of_speakers = f.read()
+
+        questions_list = extract_questions_from_transcript(
+            transcript_text,
+            req.categories,
+            list_of_speakers
+        )
         output_path = save_questions_json(questions_list)
         return {
             "status": "success",
@@ -137,7 +159,12 @@ async def generate_answers(req: BulkGenerateAnswersRequest):
         for qid in req.question_ids:
             for q in questions:
                 if q["id"] == qid:
-                    draft = generate_rag_answer(q["question_text"])
+                    draft = generate_rag_answer(
+                        q["question_text"],
+                        speaker=q.get("speaker", "Unknown"),
+                        party=q.get("party", "Unknown"),
+                        category=q.get("category", "Algemeen")
+                    )
                     q["draftAnswer"] = draft
                     from datetime import datetime
                     q["updatedAt"] = datetime.now().isoformat()
@@ -164,3 +191,50 @@ async def reset_all_data():
 
 if __name__ == "__main__":
     uvicorn.run("src.main:app", host="0.0.0.0", port=8000, reload=True)
+
+@app.post("/extract-latest-questions")
+async def extract_latest_questions():
+    """
+    Finds the most recent transcript .txt file in data/transcripts,
+    calls the existing extract_questions_from_transcript() logic,
+    saves the resulting questions, and returns them.
+    """
+    from .services.storage_service import load_most_recent_transcript_file, save_questions_json
+    from .services.question_extractor import extract_questions_from_transcript
+
+    try:
+        # 1) find the most recent transcript file
+        latest_transcript_path = load_most_recent_transcript_file()
+
+        # 2) read the transcript text
+        with open(latest_transcript_path, "r", encoding="utf-8") as f:
+            transcript_text = f.read()
+
+        # 3) Try to load the list of speakers from the CSV file
+        list_of_speakers = ""
+        speakers_path = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                                     "data", "list_of_speakers", "list_of_speakers.csv")
+        if os.path.exists(speakers_path):
+            with open(speakers_path, 'r', encoding='utf-8') as f:
+                list_of_speakers = f.read()
+
+        # 4) call the existing question extraction logic
+        questions_list = extract_questions_from_transcript(
+            transcript_text,
+            categories=["Algemeen", "Regeldruk", "Toezicht", "Wetgeving"],
+            list_of_speakers=list_of_speakers
+        )
+
+        # 5) save the resulting questions to data/questions/
+        output_path = save_questions_json(questions_list)
+
+        return {
+            "status": "success",
+            "questions": questions_list,
+            "outputPath": output_path,
+            "message": f"Questions extracted from {latest_transcript_path}"
+        }
+    except FileNotFoundError as fnf_err:
+        raise HTTPException(status_code=404, detail=str(fnf_err))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

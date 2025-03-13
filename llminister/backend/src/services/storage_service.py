@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict
 
-BASE_DIR = Path(__file__).parent.parent.parent
+BASE_DIR = Path(__file__).parent.parent.parent.parent.parent
 DATA_DIR = BASE_DIR / "data"
 TRANSCRIPTS_DIR = DATA_DIR / "transcripts"
 QUESTIONS_DIR = DATA_DIR / "questions"
@@ -63,3 +63,18 @@ def reset_data():
         for f in ANSWERS_DIR.iterdir():
             if f.is_file():
                 f.unlink()
+
+def load_most_recent_transcript_file() -> str:
+    files = sorted(TRANSCRIPTS_DIR.glob("*_transcript_*.txt"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not files:
+        raise FileNotFoundError("No transcript files found in data/transcripts.")
+    return str(files[0])
+
+def load_speakers_list() -> str:
+    """Load the list of speakers from the CSV file."""
+    speakers_path = DATA_DIR / "list_of_speakers" / "list_of_speakers.csv"
+    if not speakers_path.exists():
+        return ""
+    with open(speakers_path, "r", encoding="utf-8") as f:
+        return f.read()
+
