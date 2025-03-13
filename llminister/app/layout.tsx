@@ -18,14 +18,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="nl" className="h-full" suppressHydrationWarning>
-      <body className={`${inter.className} h-full bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 text-slate-900 dark:text-slate-100`}>
+      <body
+        className={`${inter.className} h-full bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 text-slate-900 dark:text-slate-100`}
+      >
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
           <div className="flex h-full">
             <Navigation />
             <main className="flex-1 p-4 md:p-6 overflow-y-auto">
-              <div className="max-w-6xl mx-auto">
-                {children}
-              </div>
+              <div className="max-w-6xl mx-auto">{children}</div>
             </main>
           </div>
         </ThemeProvider>

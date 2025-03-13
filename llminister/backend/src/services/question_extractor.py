@@ -1,104 +1,102 @@
+import os
 import json
-from datetime import datetime
-from typing import List, Optional
 import uuid
+from datetime import datetime
+from typing import List, Dict
+
 import anthropic
-from ..models.question import Question, QuestionInput
 
-class QuestionExtractorService:
-    """Service for extracting questions from transcripts using Anthropic's Claude"""
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
-    def __init__(self, api_key: str):
-        """Initialize the service with an API key"""
-        if not api_key or len(api_key) < 10:
-            raise ValueError("Invalid Anthropic API key")
-        self.client = anthropic.Anthropic(api_key=api_key)
-        self.model = "claude-3-sonnet-20240229"
+def extract_questions_from_transcript(transcript: str, categories: List[str]) -> List[Dict]:
+    """
+    Use Anthropic (Claude) to parse the transcript and identify questions
+    that are DIRECTLY asked to the minister.
+    """
+    if not ANTHROPIC_API_KEY:
+        raise Exception("No ANTHROPIC_API_KEY found in environment variables.")
 
-    async def extract_questions_from_transcript(
-        self,
-        transcript: str,
-        categories: List[str] = ["Algemeen"],
-        speakers_list: Optional[List[str]] = None
-    ) -> List[Question]:
-        """Extract questions from a transcript using Claude"""
-        try:
-            prompt = self._build_prompt(transcript, categories, speakers_list)
+    if "Algemeen" not in categories:
+        categories.append("Algemeen")
 
-            response = await self.client.messages.create(
-                model=self.model,
-                max_tokens=4096,
-                messages=[{"role": "user", "content": prompt}]
-            )
+    # Build an explicit instruction for the user message:
+    # We include a big block that clarifies how we want the JSON.
+    system_instructions = f"""
+Jij bent een AI-assistent die Nederlandse parlementaire debatten analyseert.
+Je taak is om ALLE vragen te vinden die direct aan de minister gericht zijn.
 
-            content = response.content[0].text if response.content[0].type == 'text' else ''
-            questions = self._parse_response(content)
+BELANGRIJK:
+1. We willen GEEN vragen die alleen retorisch zijn of bedoeld voor een ander Kamerlid.
+2. We willen alleen vragen waar de minister een antwoord op moet geven.
+3. Als de vraag niet duidelijk aan de minister is, sla hem over.
 
-            return [self._format_question(q) for q in questions]
-        except Exception as e:
-            raise Exception(f"Failed to extract questions: {str(e)}")
+We hebben de volgende categorieën: {", ".join(categories)}.
+Als je niet zeker weet bij welke categorie de vraag hoort, zet 'Algemeen'.
 
-    def _build_prompt(
-        self,
-        transcript: str,
-        categories: List[str],
-        speakers_list: Optional[List[str]] = None
-    ) -> str:
-        """Build the prompt for Claude"""
-        categories_str = ", ".join(categories)
-        speakers_section = f"\nList of speakers ordered by their set time to speak:\n{chr(10).join(speakers_list)}" if speakers_list else ""
+Geef je antwoord als JSON array, elk object bevat deze velden exact:
+- "question_text": (string) de exacte vraag
+- "timestamp": (string) [HH:MM:SS] van toen de vraag werd gesteld
+- "speaker": (string) naam of identifier van de spreker (Tweede Kamerlid)
+- "party": (string) partij van de spreker (bijv. VVD, PVV, etc.)
+- "category": (string) één van deze categorieën: {", ".join(categories)}
 
-        return f"""
-        Extract all questions directed to the minister from the following parliamentary debate transcript.
+GEEN extra uitleg, alleen JSON. Voorbeeld:
 
-        For each question, provide:
-        1. The exact text of the question
-        2. The timestamp in the format [HH:MM:SS] when the question was asked
-        3. The name of the parliament member who asked the question (if available, otherwise use their identifier)
-        4. The political party of the parliament member (if available, otherwise leave blank)
-        5. The topic/category of the question (choose from: {categories_str})
+[
+  {{
+    "question_text": "Wat vindt de minister hiervan?",
+    "timestamp": "[00:10:42]",
+    "speaker": "Arend Kisteman",
+    "party": "VVD",
+    "category": "Algemeen"
+  }},
+  ...
+]
 
-        Return the result as a JSON array of objects with the following fields:
-        - "question_text": The exact text of the question
-        - "timestamp": The timestamp when the question was asked
-        - "speaker": The name or identifier of the speaker
-        - "party": The political party of the speaker
-        - "category": The topic/category of the question
+Transcript:
+{transcript}
+    """
 
-        Rules:
-        - Only include actual questions directed to the minister
-        - Include implicit questions (e.g., "I would like to hear what the minister has to say about this")
-        - Follow the parliamentary debate structure and speaking time rules
-        - Be critical of speaker labels and verify them against the content{speakers_section}
+    # Anthropich API
+    client = anthropic.Client(api_key=ANTHROPIC_API_KEY)
 
-        Transcript:
-        {transcript}"""
+    # Construct the Claude prompt in their recommended style
+    prompt_text = f"{anthropic.HUMAN_PROMPT} {system_instructions}\n\n{anthropic.AI_PROMPT}"
 
-    def _parse_response(self, content: str) -> List[QuestionInput]:
-        """Parse the JSON response from Claude"""
-        try:
-            # Try to find JSON block in markdown format first
-            import re
-            json_match = re.search(r'```json\s*([\s\S]*?)\s*```', content) or \
-                        re.search(r'\[\s*\{[\s\S]*\}\s*\]', content)
+    resp = client.completions.create(
+        model="claude-3-7-sonnet-20250219",
+        max_tokens_to_sample=3000,
+        prompt=prompt_text,
+        temperature=0,
+    )
 
-            if not json_match:
-                raise ValueError("Could not extract JSON from Anthropic response")
+    raw = resp.completion.strip()
 
-            json_str = json_match.group(1) if json_match.group(1) else json_match.group(0)
-            questions_data = json.loads(json_str)
+    # Attempt to parse as JSON
+    try:
+        data = json.loads(raw)
+    except:
+        data = []
 
-            return [QuestionInput(**q) for q in questions_data]
-        except Exception as e:
-            raise ValueError(f"Failed to parse JSON response: {str(e)}")
+    now_iso = datetime.now().isoformat()
+    output = []
+    for item in data:
+        qid = str(uuid.uuid4())
+        qtxt = item.get("question_text", "").strip()
+        output.append({
+            "id": qid,
+            "question_text": qtxt,
+            "text": qtxt,
+            "timestamp": item.get("timestamp", ""),
+            "speaker": item.get("speaker", "Onbekend"),
+            "party": item.get("party", ""),
+            "category": item.get("category", "Algemeen"),
+            "status": "Draft",
+            "draftAnswer": "",
+            "nextAction": "",
+            "personResponsible": "",
+            "createdAt": now_iso,
+            "updatedAt": now_iso
+        })
 
-    def _format_question(self, input: QuestionInput) -> Question:
-        """Format a QuestionInput into a full Question"""
-        now = datetime.now()
-        return Question(
-            id=str(uuid.uuid4()),
-            **input.model_dump(),
-            status="Draft",
-            createdAt=now,
-            updatedAt=now
-        )
+    return output

@@ -1,259 +1,166 @@
 import os
-from typing import Optional, List
-from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Body, Request
+from typing import List, Optional
+from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from .controllers.question_controller import QuestionController
-from .controllers.transcription_controller import TranscriptionController
-from .models.question import QuestionUpdate
-import httpx
-import json
-from datetime import datetime
-from pathlib import Path
-import asyncio
+import uvicorn
 
-# Constants
-MAX_UPLOAD_SIZE = 1024 * 1024 * 100  # 100MB
-
-class ExtractQuestionsRequest(BaseModel):
-    transcript_path: str
-    categories: List[str] = ["Algemeen"]
-    speakers_list_path: Optional[str] = None
+from .services.transcription_service import transcribe_video_file
+from .services.question_extractor import extract_questions_from_transcript
+from .services.answer_generation import generate_rag_answer
+from .services.storage_service import (
+    save_transcript_file,
+    load_most_recent_questions_json,
+    save_questions_json,
+    reset_data
+)
+from .models import QuestionUpdate
 
 app = FastAPI()
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"]
 )
 
-# Get data directory from environment or use default
-DATA_DIR = Path(__file__).parent.parent.parent / "data"
-TRANSCRIPTS_DIR = DATA_DIR / "transcripts"
-TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+class ExtractRequest(BaseModel):
+    transcript_path: Optional[str] = None
+    categories: List[str] = []
 
-# Ensure data directories exist
-os.makedirs(os.path.join(DATA_DIR, "debate_videos"), exist_ok=True)
-os.makedirs(os.path.join(DATA_DIR, "questions"), exist_ok=True)
+class BulkGenerateAnswersRequest(BaseModel):
+    question_ids: List[str]
 
-@app.middleware("http")
-async def check_file_size(request: Request, call_next):
-    if request.url.path == "/api/transcribe" and request.method == "POST":
-        if "content-length" in request.headers:
-            content_length = int(request.headers["content-length"])
-            if content_length > MAX_UPLOAD_SIZE:
-                return JSONResponse(
-                    status_code=413,
-                    content={
-                        "status": "error",
-                        "error": f"File size exceeds maximum limit of {MAX_UPLOAD_SIZE / (1024 * 1024)}MB"
-                    }
-                )
-    response = await call_next(request)
-    return response
+class UpdateQuestionRequest(BaseModel):
+    question_text: Optional[str] = None
+    draftAnswer: Optional[str] = None
+    status: Optional[str] = None
+    nextAction: Optional[str] = None
+    personResponsible: Optional[str] = None
 
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    """Global exception handler to ensure consistent error responses"""
-    if isinstance(exc, HTTPException):
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={
-                "status": "error",
-                "error": exc.detail
-            }
-        )
-
-    # Log unexpected errors in production
-    print(f"Unexpected error: {str(exc)}")
-    return JSONResponse(
-        status_code=500,
-        content={
-            "status": "error",
-            "error": str(exc)
-        }
-    )
-
-# Question endpoints
-@app.get("/api/questions")
-async def get_questions():
-    """Get all questions from the most recent file"""
-    controller = QuestionController("dummy-key", DATA_DIR)  # API key not needed for GET
-    result = await controller.get_questions()
-
-    if result["status"] == "error":
-        raise HTTPException(status_code=500, detail=result["error"])
-
-    return result
-
-@app.patch("/api/questions/{question_id}")
-async def update_question(
-    question_id: str,
-    update: QuestionUpdate,
-    x_api_key: str = Header(..., alias="X-API-Key")
-):
-    """Update a specific question"""
-    controller = QuestionController(x_api_key, DATA_DIR)
-    result = await controller.update_question(question_id, update)
-
-    if result["status"] == "error":
-        raise HTTPException(status_code=500, detail=result["error"])
-
-    return result
-
-@app.delete("/api/questions")
-async def delete_question(
-    id: Optional[str] = None,
-    text: Optional[str] = None,
-    x_api_key: str = Header(..., alias="X-API-Key")
-):
-    """Delete a question by ID or text"""
-    if not id and not text:
-        raise HTTPException(
-            status_code=400,
-            detail="Either question ID or text must be provided"
-        )
-
-    controller = QuestionController(x_api_key, DATA_DIR)
-    result = await controller.delete_question(id if id else text)
-
-    if result["status"] == "error":
-        raise HTTPException(status_code=500, detail=result["error"])
-
-    return result
-
-@app.post("/api/questions/extract")
-async def extract_questions(
-    request: dict,
-    x_anthropic_key: str = Header(..., alias="X-Anthropic-Key")
-):
+@app.post("/transcribe")
+async def transcribe(file: UploadFile = File(...)):
     try:
-        # Find latest transcript if not specified
-        if not request.get("transcript_path"):
-            transcript_files = sorted(DATA_DIR.glob("*_transcript.json"))
-            if not transcript_files:
-                raise HTTPException(status_code=404, detail="No transcripts found")
-
-            latest_transcript = transcript_files[-1]
-            with open(latest_transcript) as f:
-                transcript_data = json.load(f)
-        else:
-            with open(request["transcript_path"]) as f:
-                transcript_data = json.load(f)
-
-        # Extract questions using Anthropic (implement your existing question extraction logic here)
-        # For now, return dummy data
-        questions = [
-            {"text": "Example question 1?", "category": "Algemeen"},
-            {"text": "Example question 2?", "category": "Algemeen"}
-        ]
-
+        file_bytes = await file.read()
+        original_name = file.filename or "uploaded_video.mp4"
+        transcript_text = transcribe_video_file(file_bytes, original_name)
+        transcript_path = save_transcript_file(transcript_text, original_name)
         return {
             "status": "success",
-            "questions": questions
+            "transcript": transcript_text,
+            "transcriptPath": transcript_path
         }
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Transcription endpoints
-@app.post("/api/transcribe")
-async def transcribe_video(
-    file: UploadFile,
-    x_assemblyai_key: str = Header(..., alias="X-AssemblyAI-Key")
-):
+@app.post("/extract-questions")
+async def extract_questions(req: ExtractRequest):
     try:
-        # First, upload the file to AssemblyAI
-        async with httpx.AsyncClient() as client:
-            # Upload the file
-            upload_response = await client.post(
-                "https://api.assemblyai.com/v2/upload",
-                headers={"authorization": x_assemblyai_key},
-                content=await file.read()
+        if not req.transcript_path:
+            raise HTTPException(
+                status_code=400,
+                detail="No transcript path provided."
             )
+        with open(req.transcript_path, "r", encoding="utf-8") as f:
+            transcript_text = f.read()
+        questions_list = extract_questions_from_transcript(transcript_text, req.categories)
+        output_path = save_questions_json(questions_list)
+        return {
+            "status": "success",
+            "questions": questions_list,
+            "outputPath": output_path
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-            if upload_response.status_code != 200:
-                raise HTTPException(status_code=upload_response.status_code,
-                                 detail=f"Upload failed: {upload_response.text}")
+@app.get("/questions")
+async def get_questions():
+    try:
+        questions = load_most_recent_questions_json()
+        return {"status": "success", "questions": questions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-            audio_url = upload_response.json()["upload_url"]
+@app.patch("/questions/{question_id}")
+async def patch_question(question_id: str, req: UpdateQuestionRequest):
+    try:
+        questions = load_most_recent_questions_json()
+        if not questions:
+            raise HTTPException(status_code=404, detail="No questions found.")
+        updated_question = None
+        for q in questions:
+            if q["id"] == question_id:
+                if req.question_text is not None:
+                    q["question_text"] = req.question_text
+                    q["text"] = req.question_text
+                if req.draftAnswer is not None:
+                    q["draftAnswer"] = req.draftAnswer
+                if req.status is not None:
+                    q["status"] = req.status
+                if req.nextAction is not None:
+                    q["nextAction"] = req.nextAction
+                if req.personResponsible is not None:
+                    q["personResponsible"] = req.personResponsible
+                from datetime import datetime
+                q["updatedAt"] = datetime.now().isoformat()
+                updated_question = q
+                break
+        if not updated_question:
+            raise HTTPException(status_code=404, detail="Question not found.")
+        save_questions_json(questions, override=True)
+        return {"status": "success", "question": updated_question}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-            # Start transcription
-            transcript_response = await client.post(
-                "https://api.assemblyai.com/v2/transcript",
-                headers={
-                    "authorization": x_assemblyai_key,
-                    "content-type": "application/json"
-                },
-                json={
-                    "audio_url": audio_url,
-                    "language_code": "nl",
-                    "word_boost": ["Algemeen"],
-                    "word_timestamps": True
-                }
-            )
+@app.delete("/questions/{question_id}")
+async def delete_question(question_id: str):
+    try:
+        questions = load_most_recent_questions_json()
+        if not questions:
+            raise HTTPException(status_code=404, detail="No questions file found.")
+        new_list = [q for q in questions if q["id"] != question_id]
+        if len(new_list) == len(questions):
+            raise HTTPException(status_code=404, detail="Question ID not found.")
+        save_questions_json(new_list, override=True)
+        return {"status": "success", "message": "Question deleted successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-            if transcript_response.status_code != 200:
-                raise HTTPException(status_code=transcript_response.status_code,
-                                 detail=f"Transcription request failed: {transcript_response.text}")
+@app.post("/generate-answers")
+async def generate_answers(req: BulkGenerateAnswersRequest):
+    try:
+        questions = load_most_recent_questions_json()
+        if not questions:
+            raise HTTPException(status_code=404, detail="No questions available.")
+        for qid in req.question_ids:
+            for q in questions:
+                if q["id"] == qid:
+                    draft = generate_rag_answer(q["question_text"])
+                    q["draftAnswer"] = draft
+                    from datetime import datetime
+                    q["updatedAt"] = datetime.now().isoformat()
+                    break
+        save_questions_json(questions, override=True)
+        return {
+            "status": "success",
+            "message": "Draft answers generated successfully.",
+            "questions": questions
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-            transcript_id = transcript_response.json()["id"]
-
-            # Poll for completion
-            while True:
-                polling_response = await client.get(
-                    f"https://api.assemblyai.com/v2/transcript/{transcript_id}",
-                    headers={"authorization": x_assemblyai_key}
-                )
-
-                if polling_response.status_code != 200:
-                    raise HTTPException(status_code=polling_response.status_code,
-                                     detail=f"Polling failed: {polling_response.text}")
-
-                result = polling_response.json()
-
-                if result["status"] == "completed":
-                    # Save transcript with timestamp
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    transcript_data = {
-                        "text": result["text"],
-                        "words": result["words"],
-                        "timestamp": timestamp
-                    }
-
-                    transcript_path = DATA_DIR / f"{timestamp}_transcript.json"
-                    with open(transcript_path, "w") as f:
-                        json.dump(transcript_data, f, indent=2)
-
-                    return {
-                        "status": "success",
-                        "transcript": result["text"],
-                        "transcript_path": str(transcript_path)
-                    }
-                elif result["status"] == "error":
-                    raise HTTPException(status_code=400, detail=f"Transcription failed: {result['error']}")
-
-                # Wait before polling again
-                await asyncio.sleep(3)
-
+@app.post("/reset")
+async def reset_all_data():
+    """
+    Remove all transcripts, questions, answers from disk (like the old reset logic).
+    """
+    try:
+        reset_data()
+        return {"status": "success", "message": "All data reset successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8000,
-        limit_concurrency=10,  # Limit concurrent connections
-        limit_max_requests=100,  # Limit max requests per worker
-        timeout_keep_alive=300,  # 5 minutes keep-alive timeout
-        timeout_graceful_shutdown=300,  # 5 minutes graceful shutdown
-        timeout_notify=300,  # 5 minutes notify timeout
-    )
+    uvicorn.run("src.main:app", host="0.0.0.0", port=8000, reload=True)

@@ -1,97 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import {
-    MdCheckCircle,
-    MdOutlineAdminPanelSettings,
-    MdOutlineApi,
-    MdWarning
-} from 'react-icons/md';
-import { AnthropicService } from '../lib/anthropic-service';
+import { useState } from 'react';
+import { MdCheckCircle, MdOutlineAdminPanelSettings, MdOutlineApi, MdWarning } from 'react-icons/md';
 import { useStore } from '../lib/store';
 
 export default function SettingsPage() {
   const { settings, updateSettings } = useStore();
-
   const [assemblyAIKey, setAssemblyAIKey] = useState(settings?.assemblyAIKey || '');
   const [anthropicKey, setAnthropicKey] = useState(settings?.anthropicKey || '');
-  const [adminUsers, setAdminUsers] = useState([
-    { id: 1, name: 'R de Bruin', email: 'rmmdebruin[at]gmail[dot]com', role: 'Admin' },
-  ]);
-  const [apiTestResult, setApiTestResult] = useState<string | null>(null);
-  const [assemblyAITestResult, setAssemblyAITestResult] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
-  const [anthropicService, setAnthropicService] = useState<AnthropicService | null>(null);
-
-  // Initialize Anthropic service when the key changes
-  useEffect(() => {
-    if (anthropicKey) {
-      setAnthropicService(new AnthropicService(anthropicKey));
-    }
-  }, [anthropicKey]);
-
-  const handleAnthropicApiTest = async () => {
-    if (!anthropicService) {
-      setApiTestResult('API-sleutel is niet geconfigureerd.');
-      return;
-    }
-
-    setApiTestResult('Testen...');
-    try {
-      const result = await fetch('/api/anthropic/generate-answer', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          question: 'Wat is het doel van het Ministerie van Economische Zaken?',
-          apiKey: anthropicKey
-        }),
-      });
-
-      if (!result.ok) {
-        throw new Error(`API test failed with status: ${result.status}`);
-      }
-
-      const data = await result.json();
-      setApiTestResult(data.answer && data.answer.length > 50
-        ? 'Test geslaagd! API-sleutel werkt correct.'
-        : 'Test mislukt. Controleer uw API-sleutel.');
-    } catch (error) {
-      setApiTestResult(`Test mislukt: ${error instanceof Error ? error.message : 'Onbekende fout'}`);
-    }
-  };
-
-  const handleAssemblyAITest = async () => {
-    if (!assemblyAIKey) {
-      setAssemblyAITestResult('API-sleutel is niet geconfigureerd.');
-      return;
-    }
-
-    setAssemblyAITestResult('Testen...');
-    try {
-      const response = await fetch('/api/assemblyai/test', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          apiKey: assemblyAIKey
-        }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'API test failed');
-      }
-
-      setAssemblyAITestResult('Test geslaagd! API-sleutel werkt correct.');
-    } catch (error) {
-      console.error('Error testing AssemblyAI API:', error);
-      setAssemblyAITestResult(`Test mislukt: ${error instanceof Error ? error.message : 'Onbekende fout'}`);
-    }
-  };
 
   const handleSave = () => {
     try {
@@ -104,9 +22,14 @@ export default function SettingsPage() {
       setTimeout(() => setSaveStatus('idle'), 3000);
     } catch (error) {
       setSaveStatus('error');
-      setMessage('Er is een fout opgetreden bij het opslaan van de instellingen');
+      setMessage('Fout bij opslaan van instellingen');
     }
   };
+
+  // Example admin users
+  const adminUsers = [
+    { id: 1, name: 'R de Bruin', email: 'rmmdebruin[at]gmail[dot]com', role: 'Admin' },
+  ];
 
   return (
     <div className="space-y-6">
@@ -130,92 +53,62 @@ export default function SettingsPage() {
         </div>
 
         <div className="space-y-4">
+          {/* Anthropic Key */}
           <div>
             <label className="block text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
               Anthropic API Sleutel
             </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="text"
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="off"
-                spellCheck="false"
-                data-form-type="other"
-                value={anthropicKey}
-                onChange={(e) => setAnthropicKey(e.target.value)}
-                placeholder="sk-ant-api03-..."
-                className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-mono tracking-wider [text-security:disc] [-webkit-text-security:disc]"
-              />
-              <button
-                onClick={handleAnthropicApiTest}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium"
-              >
-                Test
-              </button>
-            </div>
-            {apiTestResult && (
-              <p className={`text-sm mt-2 ${apiTestResult.includes('geslaagd') ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                {apiTestResult}
-              </p>
-            )}
+            <input
+              type="text"
+              value={anthropicKey}
+              onChange={(e) => setAnthropicKey(e.target.value)}
+              placeholder="sk-ant-api03-..."
+              className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-mono tracking-wider"
+            />
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-              Benodigd voor het genereren van antwoorden en het analyseren van vragen.
+              Nodig voor het analyseren en genereren van antwoorden.
             </p>
           </div>
 
+          {/* AssemblyAI Key */}
           <div>
             <label className="block text-sm font-medium text-slate-500 dark:text-slate-400 mb-1">
               AssemblyAI API Sleutel
             </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="text"
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="off"
-                spellCheck="false"
-                data-form-type="other"
-                value={assemblyAIKey}
-                onChange={(e) => setAssemblyAIKey(e.target.value)}
-                placeholder="Vul uw AssemblyAI API sleutel in"
-                className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-mono tracking-wider [text-security:disc] [-webkit-text-security:disc]"
-              />
-              <button
-                onClick={handleAssemblyAITest}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium"
-              >
-                Test
-              </button>
-            </div>
-            {assemblyAITestResult && (
-              <p className={`text-sm mt-2 ${assemblyAITestResult.includes('geslaagd') ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                {assemblyAITestResult}
-              </p>
-            )}
+            <input
+              type="text"
+              value={assemblyAIKey}
+              onChange={(e) => setAssemblyAIKey(e.target.value)}
+              placeholder="Vul uw AssemblyAI sleutel in"
+              className="w-full p-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-mono tracking-wider"
+            />
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-              Benodigd voor het transcriberen van debatvideo's. Verkrijg een gratis sleutel op <a href="https://www.assemblyai.com/" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">assemblyai.com</a>.
+              Nodig om video's te transcriberen. Verkrijgbaar op assemblyai.com.
             </p>
           </div>
         </div>
 
         {saveStatus !== 'idle' && (
-          <div className={`mt-4 p-3 rounded-lg ${
-            saveStatus === 'success'
-              ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800/30'
-              : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/30'
-          }`}>
+          <div
+            className={`mt-4 p-3 rounded-lg ${
+              saveStatus === 'success'
+                ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800/30'
+                : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/30'
+            }`}
+          >
             <div className="flex items-start">
               {saveStatus === 'success' ? (
                 <MdCheckCircle className="text-green-500 text-xl mt-0.5 mr-3 flex-shrink-0" />
               ) : (
                 <MdWarning className="text-red-500 text-xl mt-0.5 mr-3 flex-shrink-0" />
               )}
-              <p className={`text-sm ${
-                saveStatus === 'success'
-                  ? 'text-green-700 dark:text-green-300'
-                  : 'text-red-700 dark:text-red-300'
-              }`}>
+              <p
+                className={`text-sm ${
+                  saveStatus === 'success'
+                    ? 'text-green-700 dark:text-green-300'
+                    : 'text-red-700 dark:text-red-300'
+                }`}
+              >
                 {message}
               </p>
             </div>
@@ -237,7 +130,6 @@ export default function SettingsPage() {
           <MdOutlineAdminPanelSettings className="mr-2 text-xl" />
           <h2 className="text-lg font-medium">Gebruikersbeheer</h2>
         </div>
-
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
