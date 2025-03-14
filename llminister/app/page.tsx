@@ -8,21 +8,31 @@ import {
   MdOutlineSettings,
   MdOutlineVideoLibrary
 } from 'react-icons/md';
+import type { Question } from './lib/store';
 
    /**
     * 1) A simple server-side fetch to your Python backend
     *    to load all questions. Then we can compute status counts, etc.
     */
-   async function getAllQuestionsFromBackend() {
-     // You can set fetch options to avoid caching if you want fresh data.
-     const res = await fetch(`${process.env.NEXT_PUBLIC_PYTHON_API_URL}/questions`, {
-       cache: 'no-store',
-     });
-     if (!res.ok) {
-       throw new Error(`Failed to load questions: ${await res.text()}`);
+   async function getAllQuestionsFromBackend(): Promise<Question[]> {
+     try {
+       // You can set fetch options to avoid caching if you want fresh data.
+       const res = await fetch(`${process.env.NEXT_PUBLIC_PYTHON_API_URL}/questions`, {
+         cache: 'no-store',
+         next: { revalidate: 0 } // Skip cache completely
+       });
+
+       if (!res.ok) {
+         console.error(`Failed to load questions: ${res.status} ${res.statusText}`);
+         return [];
+       }
+
+       const data = await res.json();
+       return data.questions || [];
+     } catch (err) {
+       console.error('Error fetching questions:', err);
+       return [];
      }
-     const data = await res.json();
-     return data.questions || [];
    }
 
    /**
@@ -48,45 +58,37 @@ import {
      bgGradient?: string;
    }) {
      return (
-       <div
-         className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md
-                    rounded-xl border border-slate-200 dark:border-slate-700
-                    overflow-hidden transition-all duration-300 hover:shadow-md"
-       >
-         <div className={`bg-gradient-to-r ${bgGradient} p-6`}>
-           <div className="flex justify-between items-start">
-             <div>
-               <div className="text-slate-700 dark:text-slate-300 mb-2 text-3xl">
-                 {icon}
-               </div>
-               <h3 className="text-xl font-semibold text-slate-800 dark:text-slate-200 mb-2">
-                 {title}
-               </h3>
-               <p className="text-slate-600 dark:text-slate-400">{description}</p>
+       <div className={`bg-white/70 dark:bg-slate-800/70 backdrop-blur-md rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700 h-full flex flex-col`}>
+         <div className="flex-1">
+           <div className={`inline-flex p-3 rounded-xl bg-gradient-to-br ${bgGradient} mb-4`}>
+             <div className="w-8 h-8 flex items-center justify-center text-blue-600 dark:text-blue-400">
+               {icon}
              </div>
-             {count !== undefined && (
-               <div className="bg-white dark:bg-slate-700 rounded-lg px-3 py-2 text-center min-w-[80px]">
-                 <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                   {count}
-                 </div>
-                 <div className="text-xs text-slate-500 dark:text-slate-400">
-                   {countLabel}
-                 </div>
-               </div>
-             )}
            </div>
+           <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200 mb-2">
+             {title}
+           </h3>
+           <p className="text-slate-600 dark:text-slate-300 mb-4">
+             {description}
+           </p>
+           {count !== undefined && (
+             <div className="flex items-end mt-auto mb-4">
+               <span className="text-3xl font-bold text-slate-800 dark:text-slate-200">
+                 {count}
+               </span>
+               <span className="ml-2 text-sm text-slate-500 dark:text-slate-400">
+                 {countLabel}
+               </span>
+             </div>
+           )}
          </div>
-         <div className="p-4 border-t border-slate-200 dark:border-slate-700">
-           <Link
-             href={linkHref}
-             className="flex items-center justify-between
-                        text-blue-600 dark:text-blue-400 font-medium
-                        hover:text-blue-700 dark:hover:text-blue-300"
-           >
-             {linkText}
-             <MdOutlineArrowForward />
-           </Link>
-         </div>
+         <Link
+           href={linkHref}
+           className="flex items-center justify-between w-full px-4 py-2 mt-auto bg-white/50 dark:bg-slate-700/50 text-slate-700 dark:text-slate-300 rounded-lg border border-slate-200 dark:border-slate-600 text-sm font-medium hover:bg-white dark:hover:bg-slate-700 transition-colors"
+         >
+           {linkText}
+           <MdOutlineArrowForward />
+         </Link>
        </div>
      );
    }
@@ -97,12 +99,7 @@ import {
     */
    export default async function HomePage() {
      // Fetch all questions from the Python backend
-     let questions: any[] = [];
-     try {
-       questions = await getAllQuestionsFromBackend();
-     } catch (err) {
-       console.error('Error fetching questions:', err);
-     }
+     let questions = await getAllQuestionsFromBackend();
 
      // Basic stats
      const totalQuestions = questions.length;
@@ -115,17 +112,13 @@ import {
      const transcripts: any[] = [];
 
      return (
-       <div className="space-y-8">
+       <div className="space-y-6">
          {/* Heading */}
-         <div
-           className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-md
-                      rounded-2xl p-6 shadow-sm border border-slate-200
-                      dark:border-slate-700"
-         >
-           <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-200">
+         <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-md rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+           <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-200 mb-2">
              Dashboard
            </h1>
-           <p className="mt-1 text-slate-600 dark:text-slate-300">
+           <p className="text-slate-600 dark:text-slate-300">
              Welkom bij LLMinister, uw assistent voor het beantwoorden van parlementaire vragen.
            </p>
          </div>
@@ -134,8 +127,8 @@ import {
          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
            <DashboardCard
              title="Parlementaire Vragen"
-             description="Beheer en beantwoord vragen van Tweede Kamerleden."
-             icon={<MdOutlineQuestionAnswer />}
+             description="Bekijk en beheer alle geëxtraheerde vragen en genereer conceptantwoorden."
+             icon={<MdOutlineQuestionAnswer className="text-xl" />}
              linkText="Bekijk alle vragen"
              linkHref="/vragen"
              bgGradient="from-blue-500/10 to-blue-600/10"
@@ -143,9 +136,9 @@ import {
              countLabel="Vragen"
            />
            <DashboardCard
-             title="Transcripties"
-             description="Upload en verwerk video's van debatten."
-             icon={<MdOutlineVideoLibrary />}
+             title="Video Transcriptie"
+             description="Upload een video van een debat en extraheer automatisch de parlementaire vragen."
+             icon={<MdOutlineVideoLibrary className="text-xl" />}
              linkText="Nieuwe transcriptie"
              linkHref="/transcriptie"
              bgGradient="from-purple-500/10 to-purple-600/10"
@@ -154,8 +147,8 @@ import {
            />
            <DashboardCard
              title="Instellingen"
-             description="Configureer API-sleutels en gebruikersrollen."
-             icon={<MdOutlineSettings />}
+             description="Configureer API-sleutels en andere instellingen van de applicatie."
+             icon={<MdOutlineSettings className="text-xl" />}
              linkText="Beheer instellingen"
              linkHref="/instellingen"
              bgGradient="from-slate-500/10 to-slate-600/10"
@@ -164,54 +157,38 @@ import {
 
          {/* Status Overview */}
          {totalQuestions > 0 && (
-           <div
-             className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-md
-                        rounded-xl p-6 shadow-sm border border-slate-200
-                        dark:border-slate-700"
-           >
-             <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-200 mb-4">
+           <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-md rounded-2xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+             <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-200 mb-4">
                Status Overzicht
              </h2>
              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-               <div
-                 className="bg-white dark:bg-slate-700 rounded-lg p-4
-                            border border-slate-200 dark:border-slate-600"
-               >
-                 <div className="text-3xl font-bold text-blue-600 dark:text-blue-400">
+               <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+                 <span className="text-2xl font-bold text-yellow-700 dark:text-yellow-400">
                    {draftCount}
-                 </div>
-                 <div className="text-sm text-slate-500 dark:text-slate-400">
+                 </span>
+                 <p className="mt-1 text-sm text-yellow-600 dark:text-yellow-300">
                    Concept antwoorden
-                 </div>
+                 </p>
                </div>
-               <div
-                 className="bg-white dark:bg-slate-700 rounded-lg p-4
-                            border border-slate-200 dark:border-slate-600"
-               >
-                 <div className="text-3xl font-bold text-purple-600 dark:text-purple-400">
+               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                 <span className="text-2xl font-bold text-blue-700 dark:text-blue-400">
                    {herschrevenCount}
-                 </div>
-                 <div className="text-sm text-slate-500 dark:text-slate-400">
+                 </span>
+                 <p className="mt-1 text-sm text-blue-600 dark:text-blue-300">
                    Herschreven antwoorden
-                 </div>
+                 </p>
                </div>
-               <div
-                 className="bg-white dark:bg-slate-700 rounded-lg p-4
-                            border border-slate-200 dark:border-slate-600"
-               >
-                 <div className="text-3xl font-bold text-green-600 dark:text-green-400">
+               <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                 <span className="text-2xl font-bold text-green-700 dark:text-green-400">
                    {definitiefCount}
-                 </div>
-                 <div className="text-sm text-slate-500 dark:text-slate-400">
+                 </span>
+                 <p className="mt-1 text-sm text-green-600 dark:text-green-300">
                    Definitieve antwoorden
-                 </div>
+                 </p>
                </div>
              </div>
            </div>
          )}
-
-         {/* If you still want to manage categories, you'd do so entirely in the backend
-             or create a new server action. For now, we can skip it to avoid `useStore()`. */}
        </div>
      );
    }

@@ -1,60 +1,94 @@
 import os
+import re
+import json
+from typing import Dict, List, Tuple, Optional, Any
 import anthropic
 
 from .knowledgebase import KnowledgeBase
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
-# We'll create a single global knowledge base instance (for performance).
+# Create a single global knowledge base instance (for performance)
 _kb = KnowledgeBase(pdf_dir="data/available_knowledge")
 
-def generate_rag_answer(question_text: str, speaker: str = "Unknown", party: str = "Unknown", category: str = "Algemeen") -> str:
+def generate_rag_answer(question_text: str, speaker: str = "Unknown", party: str = "Unknown", category: str = "Algemeen") -> Dict:
     """
-    1. Use TF-IDF knowledge base to get top 5 relevant chunks
+    1. Use TF-IDF knowledge base to get top 5 relevant pages
     2. Construct prompt with sources
-    3. Call Anthropic
-    4. Return the final draft answer with citations
+    3. Call Anthropic with special instructions to include sentence-level citations
+    4. Process the response to extract citations and structure data
+    5. Return the final draft answer with structured citations and source metadata
+
+    Returns a dict with:
+    - answer_text: The formatted answer with citations
+    - sources: List of source documents with metadata
+    - sentences: List of {text, citations} mappings for frontend highlighting
     """
     if not ANTHROPIC_API_KEY:
         raise Exception("No ANTHROPIC_API_KEY in environment variables.")
 
-    # 1. retrieve top k
+    # 1. retrieve top k pages
     top_docs = _kb.search(question_text, top_k=5)
 
-    # 2. build context with citations
+    # Create a unique ID for each source doc
+    sources = []
+    doc_id_map = {}  # Maps source+page to an ID
+
+    for i, doc in enumerate(top_docs):
+        source_id = f"source-{i+1}"
+        doc_id_map[f"{doc['source']}|{doc['page']}"] = source_id
+
+        sources.append({
+            "id": source_id,
+            "title": doc['source'],
+            "page": doc['page'],
+            "file_path": doc['file_path'],
+            "similarity_score": doc.get('similarity_score', 0)
+        })
+
+    # 2. build context with citations and source IDs
     context_str = ""
-    for doc in top_docs:
-        # doc has { 'source': ..., 'page': ..., 'content': ... }
-        context_str += f"Bron: {doc['source']} p.{doc['page']}\n{doc['content']}\n\n"
+    for i, doc in enumerate(top_docs):
+        source_id = f"source-{i+1}"
+        context_str += f"[{source_id}] Bron: {doc['source']} p.{doc['page']}\n{doc['content']}\n\n"
 
-    # 3. build system and user messages
+    # 3. build system and user messages with enhanced citation instructions
     system_message = """\
-- You are an ambtenaar (public official) working for the Dutch Ministery of Economic Affairs.
-- You are tasked with preparing answers to parliamentary questions about the Advisory Board on Regulatory Burden (ATR).
-- These answers will be used by the Minister of Economic Affairs to answer questions in the Dutch House of Representatives.
-- Your role is to provide thorough, formal, and factual answers based solely on the provided knowledge base.
-- The Minister of Economic Affairs has a limited amount of time to answer the questions, so your answers should be concise and to the point.
-- Aim for a word count between 100 and 300 words, depending on the complexity of the question.
-Requirements for your answer:
-1. Only use information from the provided knowledge base
-2. For each claim or piece of information, cite the specific document and page number
-3. Maintain a formal, thorough tone appropriate for parliamentary communication
-4. If no relevant information is found in the knowledge base, explicitly state this
-5. Structure your answer clearly and comprehensively
-6. Focus only on information relevant to the specific question
-7. There is no need to repeat to provide a header or to repeat the question in your answer.
-8. Remember that your answers will be used as input by the Minister of Economic Affairs to answer questions in the Dutch House of Representatives.
-9. Your answer should start directly with the answer to the question, without any introductory text.
-10. Your answer should be in Dutch.
-Format your answer with clear citations, e.g., "[Werkprogramma ATR 2025, p. 12]"."""
+- Je bent een ambtenaar (public official) die werkt voor het Nederlandse Ministerie van Economische Zaken.
+- Je taak is het voorbereiden van antwoorden op parlementaire vragen over het Adviescollege Toetsing Regeldruk (ATR).
+- Deze antwoorden zullen worden gebruikt door de Minister van Economische Zaken om vragen in de Tweede Kamer te beantwoorden.
+- Jouw rol is om grondige, formele en feitelijke antwoorden te geven, uitsluitend gebaseerd op de verstrekte kennisbasis.
+- De Minister van Economische Zaken heeft beperkte tijd om de vragen te beantwoorden, dus je antwoorden moeten beknopt en to-the-point zijn.
+- Streef naar een lengte tussen 100 en 300 woorden, afhankelijk van de complexiteit van de vraag.
 
-    user_message = f"""Question from parliament:
+Vereisten voor je antwoord:
+1. Gebruik alleen informatie uit de verstrekte kennisbasis
+2. Voor elke bewering of stukje informatie, citeer de specifieke bron met een bronvermelding aan het eind van ELKE ZIN
+3. De citatie aan het eind van elke zin moet precies de source-ID volgen zoals aangegeven in de context, bijvoorbeeld: "[source-1]"
+4. Gebruik een formele, grondige toon die past bij parlementaire communicatie
+5. Als er geen relevante informatie wordt gevonden in de kennisbasis, vermeld dit expliciet
+6. Structureer je antwoord duidelijk en volledig
+7. Focus alleen op informatie die relevant is voor de specifieke vraag
+8. Er is geen noodzaak om een header te geven of de vraag in je antwoord te herhalen
+9. Onthoud dat je antwoorden zullen worden gebruikt als input door de Minister van Economische Zaken om vragen in de Tweede Kamer te beantwoorden
+10. Begin je antwoord direct met het antwoord op de vraag, zonder inleidende tekst
+11. Je antwoord moet in het Nederlands zijn
+12. Plaats de bron altijd aan het einde van elke zin binnen vierkante haken
+
+BELANGRIJK:
+- Plaats aan het einde van ELKE ZIN de bijbehorende bronvermelding met de exacte source-ID tussen vierkante haken
+- Volg dit formaat strikt: "Dit is een zin met informatie. [source-1]"
+- Als een zin informatie bevat uit meerdere bronnen, citeer ze allemaal: "Dit is een gecombineerde zin. [source-1][source-3]"
+- Elke zin MOET eindigen met minstens één bronvermelding
+"""
+
+    user_message = f"""Vraag uit het parlement:
 {question_text}
-Asked by: {speaker} ({party})
-Category: {category}
-Available knowledge base (most relevant documents):
+Gesteld door: {speaker} ({party})
+Categorie: {category}
+Beschikbare kennisbasis (meest relevante documenten):
 {context_str}
-Please provide a draft answer to this parliamentary question, following the requirements in the system prompt."""
+Geef een conceptantwoord op deze parlementaire vraag, volgens de vereisten in de systeemprompt."""
 
     # 4. Call Anthropic using Messages API
     client = anthropic.Client(api_key=ANTHROPIC_API_KEY)
@@ -68,5 +102,58 @@ Please provide a draft answer to this parliamentary question, following the requ
         temperature=0,
     )
 
-    # 5. Extract the answer from the response
-    return response.content[0].text.strip()
+    # 5. Extract the answer text from the response
+    answer_text = response.content[0].text.strip()
+
+    # 6. Process the answer to extract sentence-level citations
+    sentences = []
+    # Split answer into sentences with their citations
+    pattern = r'(.*?)(\[source-\d+\])+'
+
+    # Find all sentences and their citations using regex
+    for match in re.finditer(r'(.+?[.!?])\s*(\[source-\d+\](?:\[source-\d+\])*)', answer_text):
+        sentence_text = match.group(1).strip()
+        citations_text = match.group(2)
+
+        # Extract all source IDs from the citations
+        source_ids = re.findall(r'\[source-(\d+)\]', citations_text)
+
+        # Map source IDs to the actual sources
+        citations = []
+        for source_id in source_ids:
+            source_index = int(source_id) - 1
+            if 0 <= source_index < len(sources):
+                citations.append({
+                    "source_id": f"source-{source_id}",
+                    "title": sources[source_index]["title"],
+                    "page": sources[source_index]["page"]
+                })
+
+        sentences.append({
+            "text": sentence_text,
+            "citations": citations
+        })
+
+    # Create the final structured result
+    result = {
+        "answer_text": answer_text,
+        "sources": sources,
+        "sentences": sentences
+    }
+
+    return result
+
+def get_pdf_page_data(source: str, page: int) -> Dict:
+    """
+    Retrieve the specific PDF page data for displaying in the UI.
+    """
+    page_data = _kb.get_pdf_page(source, page)
+    if not page_data:
+        return {"error": "Page not found"}
+
+    return {
+        "source": page_data["source"],
+        "page": page_data["page"],
+        "content": page_data["content"],
+        "file_path": page_data["file_path"]
+    }
