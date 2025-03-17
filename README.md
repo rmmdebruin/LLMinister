@@ -2,6 +2,8 @@
 
 LLMinister is an AI-driven application that helps the Dutch Ministry of Economic Affairs efficiently answer parliamentary questions.
 
+https://github.com/user-attachments/assets/545ed46d-2ab7-40ec-bd77-5f7dff4697cc
+
 ## Overview
 
 The app does the following:
