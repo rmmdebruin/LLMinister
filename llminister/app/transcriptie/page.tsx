@@ -14,7 +14,6 @@ export default function TranscriptiePage() {
   const [processingMessage, setProcessingMessage] = useState('');
   const [processingProgress, setProcessingProgress] = useState(0);
 
-  // Load questions into the store
   const loadQuestionsFromFile = useStore((state) => state.loadQuestionsFromFile);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
