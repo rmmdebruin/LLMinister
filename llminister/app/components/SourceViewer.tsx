@@ -1,4 +1,3 @@
-// app/components/SourceViewer.tsx
 'use client';
 
 import { useEffect, useState } from 'react';

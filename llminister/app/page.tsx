@@ -1,8 +1,4 @@
-/* -------------------------------------------------------------------
-   File: app/page.tsx  (SERVER COMPONENT, no `use client` here)
-   ------------------------------------------------------------------- */
-
-   import Link from 'next/link';
+import Link from 'next/link';
 import {
   MdOutlineArrowForward, MdOutlineQuestionAnswer,
   MdOutlineSettings,
@@ -12,7 +8,7 @@ import type { Question } from './lib/store';
 
    /**
     * 1) A simple server-side fetch to your Python backend
-    *    to load all questions. Then we can compute status counts, etc.
+    *    to load all questions.
     */
    async function getAllQuestionsFromBackend(): Promise<Question[]> {
      try {

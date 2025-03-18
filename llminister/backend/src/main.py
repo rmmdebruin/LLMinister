@@ -1,7 +1,3 @@
-# --------------------------------------------
-# File: llminister/backend/src/main.py
-# (Add or Update the top lines to load dotenv)
-# --------------------------------------------
 import os
 from typing import List, Optional
 
@@ -34,7 +30,6 @@ from .models import QuestionUpdate
 
 app = FastAPI()
 
-# Make sure CORS is properly configured to allow file downloads
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Update with your frontend URL in production
@@ -288,7 +283,6 @@ async def extract_latest_questions():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-    # Add this new endpoint to serve PDF files directly
 @app.get("/api/pdf")
 async def get_pdf(path: str = Query(..., description="Path to the PDF file")):
     """
@@ -317,9 +311,6 @@ async def get_pdf(path: str = Query(..., description="Path to the PDF file")):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Add these endpoints to backend/src/main.py
-
-# Add a new endpoint to get a specific PDF page as a standalone PDF
 @app.get("/api/pdf-page")
 async def get_pdf_page(source: str, page: int):
     """
