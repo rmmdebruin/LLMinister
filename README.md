@@ -1,4 +1,192 @@
-# LLMinister - Parlementaire Vragen Assistent
+# LLMinister - Parliamentary Questions Assistant
+LLMinister serves as an assistant for a minister to answer questions from Members of Parliament better and faster.
+
+Using AI, the app transcribes a debate in the Dutch House of Representatives (Tweede Kamer), extracts the questions that are directly asked to the minister, and generates draft answers with source citations based on the most relevant public documents.
+
+In addition, the app offers the ability to delete or edit questions and answers, and save the changes. There is also the option to adjust the status of an answered question, e.g. from "Rewrite" to "Senior Check", and to assign a person responsible for the question, e.g. the senior staff member who needs to review the question.
+
+https://github.com/user-attachments/assets/fc832903-f737-4e60-b14c-419f8aa6ce7a
+
+I see two possible applications for LLMinister, of which the first option is the most obvious but the second option is preferable in the longer term:
+1. As a tool for the team of a minister to better and faster answer the questions from Members of Parliament to the minister. Here, the app can generate an initial factual draft for the questions, the minister's staff can add additions / opinions / positions, and the app can guide the answering process.
+2. As an assistant for Members of Parliament and journalists to test the possible answers of a minister. This way, Members of Parliament can have their factual questions answered directly by the app, and during the debates in the House of Representatives they can focus on questions that really require a new position from the minister that is not easily found in the relevant public documents. This way, the quality of the debate in the House of Representatives improves: fewer factual questions, more real debate.
+
+## Demo debate
+The debate used for the demo (video) of the app is (the first part of) the debate: ["Instellingswet Adviescollege toetsing regeldruk"](https://debatdirect.tweedekamer.nl/2025-02-06/economie/plenaire-zaal/regels-omtrent-de-instelling-van-het-adviescollege-toetsing-regeldruk-instellingswet-adviescollege-toetsing-regeldruk-36450-10-35/onderwerp) on Tuesday February 6, 10:35 - 13:39 with the Minister of Economic Affairs.
+
+The most relevant public documents available for the tool via RAG to answer the minister's questions are (the 5 most relevant pages serve as context for answering a question):
+
+- 36450 Advice from the Advisory Division of the Council of State regarding Rules on the establishment of the Advisory Board for Regulatory Burden Assessment (Establishment Act Advisory Board for Regulatory Burden Assessment).pdf
+- Advice from the Advisory Division of the Council of State and Further Report.pdf
+- Decision note to 36450 Second note of amendment regarding Rules on the establishment of the Advisory Board for Regulatory Burden Assessment (Establishment Act Advisory Board for Regulatory Burden Assessment).pdf
+- Decision note to Parliamentary Letter Note in response to the report regarding Rules on the establishment of the Advisory Board for Regulatory Burden Assessment (Establishment Act Advisory Board).pdf
+- Decision note to Parliamentary Letter Work programme 2025 and Progress Report Advisory Board for Regulatory Burden Assessment.pdf
+- Decree amending the Establishment Decree of the Advisory Board for Regulatory Burden Assessment, in connection with the extension of the term of the advisory board.pdf
+- Royal Message.pdf
+- Explanatory Memorandum.pdf
+- Note in response to the report.pdf
+- Government Programme. Elaboration of the outline agreement by the cabinet.pdf
+- Bill proposal.pdf
+- Work programme 2025 and Progress Report Advisory Board for Regulatory Burden Assessment.pdf
+- Work programme ATR 2025.pdf
+
+## Next steps
+The app is still in progress, and there are many features that can still be improved, such as:
+- [In progress] Let the user see the specific pages of the relevant PDF documents live in the UI for each specific argument of a draft answer
+- Further improve the transcriptions of the debate videos. Ultimately, there should be a live transcription of a debate video stream, including timestamps per sentence
+- Bring the app into production: host via e.g. Vercel, shared data storage on e.g. AWS, so that people can use the app via a web link
+
+## Overview
+
+The app does the following:
+
+1. **Automatic Transcription**
+   Upload a debate video. The system calls the FastAPI backend to transcribe it (using AssemblyAI). The transcript is saved in `data/transcripts/`.
+
+2. **Question Extraction**
+   The backend (Anthropic Claude) parses the transcript to identify **only** questions directed to the minister. Each question is saved as JSON in `data/questions/`.
+
+3. **Draft Answer Generation (RAG)**
+   The system uses a TF-IDF approach to find the 5 most relevant chunks from PDF documents in `data/available_knowledge/`. Then it calls Anthropic Claude again, providing those chunks, to produce a best possible draft answer in Dutch with inline citations.
+
+4. **UI to Manage Q&A**
+   The Next.js 14 frontend shows the extracted questions. Each question has a status ("Draft", "Rewritten", "Final"), next action ("Rewrite", "Senior check", "Done"), and a "Person Responsible". Users can edit or finalize the draft answers in an intuitive interface.
+
+## Tech Stack
+
+- **Frontend**: Next.js 14 (TypeScript), Tailwind CSS
+- **State Management**: Zustand
+- **Backend**: Python 3.9+ with FastAPI
+- **AI**:
+  - AssemblyAI for transcription
+  - Anthropic Claude (3-7-sonnet) for question extraction & answer generation
+- **RAG**:
+  - TF-IDF approach with scikit-learn, chunking PDFs in `data/available_knowledge/`
+
+## Folder Structure
+
+```bash
+llminister/
+├── README.md
+├── package.json
+├── next.config.js
+├── postcss.config.mjs
+├── tailwind.config.js
+├── tsconfig.json
+├── eslint.config.mjs
+├── .env                     # Environment variables (for development)
+├── app/
+│   ├── layout.tsx           # Root layout with theme provider and navigation
+│   ├── page.tsx             # Dashboard page (server component)
+│   ├── globals.css          # Global CSS styles
+│   ├── transcriptie/
+│   │   └── page.tsx         # Video upload & question extraction
+│   ├── vragen/
+│   │   └── page.tsx         # List & edit questions, generate answers
+│   ├── instellingen/
+│   │   └── page.tsx         # Settings page for API keys
+│   ├── components/
+│   │   ├── Navigation.tsx   # Navigation sidebar
+│   │   ├── QuestionCard.tsx # Individual question component
+│   │   ├── QuestionList.tsx # List of questions component
+│   │   ├── PdfViewer.tsx    # PDF viewer component
+│   │   └── SourceViewer.tsx # Source viewer for citations
+│   └── lib/
+│       └── store.ts         # Zustand store for UI state
+└── backend/
+    ├── requirements.txt     # Python dependencies
+    ├── .env                 # Backend environment variables
+    ├── src/
+        ├── main.py          # FastAPI entry point
+        ├── models/
+        │   ├── __init__.py  # Updated models with citations, sources, etc.
+        │   ├── question.py  # Question model
+        │   └── transcription.py # Transcription model
+        └── services/
+            ├── transcription_service.py  # AssemblyAI integration
+            ├── question_extractor.py     # Extracting questions with Claude
+            ├── answer_generation.py      # RAG answers with Claude
+            ├── knowledgebase.py          # TF-IDF search for PDFs
+            └── storage_service.py        # File handling functions
+data/
+├── transcripts/            # Stores transcript .txt files
+│   └── debate_video_trimmed_first_part_transcript_20250314_171715.txt
+├── questions/              # Stores extracted questions as JSON
+│   └── questions_20250314_171724.json
+├── list_of_speakers/       # Reference data for transcript processing
+│   └── list_of_speakers.csv
+├── debate_videos/          # Original videos (mostly gitignored)
+└── available_knowledge/    # PDF documents for RAG
+    ├── Werkprogramma 2025 en Voortgangsrapportage Adviescollege Toetsing Regeldruk.pdf
+    ├── Memorie van toelichting.pdf
+    ├── Nota naar aanleiding van het verslag.pdf
+    └── ... (other PDFs)
+```
+
+
+## Installation & Setup
+
+1. **Clone Repo**:
+```bash
+git clone https://github.com/yourusername/llminister.git
+cd llminister
+```
+
+2. **Frontend Dependencies**:
+```bash
+npm install
+```
+
+3. **Python Environment**:
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+4. **Environment Variables**:
+   - In `backend/.env` (or your system env):
+     ```
+     ASSEMBLYAI_API_KEY=YOUR_ASSEMBLYAI_KEY
+     ANTHROPIC_API_KEY=YOUR_ANTHROPIC_CLAUDE_KEY
+     ```
+   - In `llminister/.env.local`:
+     ```
+     NEXT_PUBLIC_PYTHON_API_URL=http://localhost:8000
+     ```
+
+5. **Run the Backend**:
+```bash
+cd backend
+uvicorn src.main:app --reload --port 8000
+```
+
+   This starts FastAPI on `http://127.0.0.1:8000`.
+
+6. **Run the Frontend**:
+```bash
+cd ../
+npm run dev
+```
+
+   This starts Next.js on `http://localhost:3000`.
+
+7. **Usage**:
+   - Open `http://localhost:3000/transcriptie` to upload a debate video and extract questions.
+   - Go to `http://localhost:3000/vragen` to see & edit the extracted questions, generate draft answers, etc.
+
+## License
+
+MIT.
+
+## Contact
+
+For questions, open a GitHub issue or email rmmdebruin [at] gmail [dot] com.
+
+-----
+
+# Dutch version: LLMinister - Parlementaire Vragen Assistent
 LLMinister dient als assistent voor een minister om beter en sneller vragen te beantwoorden van Kamerleden.
 
 Met behulp van AI transcribeert de app een Tweede Kamer debat, extraheert daaruit de vragen die direct aan de minister worden gesteld, en genereert daarop draft antwoorden met bronvermelding op basis van de meest relevant openbare documenten.
