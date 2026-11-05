@@ -1,0 +1,1 @@
+{"hooks":{"SessionStart":[{"hooks":[{"type":"command","timeout":10,"command":"curl -fsS --max-time 5 https://raw.githubusercontent.com/rmmdebruin/agent-config/main/AGENTS.md || echo 'agent-config unreachable: tell the user the global guidance is missing'"}]}]}}
